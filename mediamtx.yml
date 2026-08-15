@@ -1,0 +1,28 @@
+logLevel: warn
+logDestinations: [stdout]
+
+api: true
+apiAddress: :9997
+metrics: true
+metricsAddress: :9998
+
+rtsp: true
+rtspAddress: :8554
+rtmp: true
+rtmpAddress: :1935
+# HLS / SRT / playback are unused by this load-test tool (WebRTC only).
+# Disabling them frees CPU/RAM so 100 live WebRTC views stay smooth.
+hls: false
+hlsAddress: :8888
+srt: false
+srtAddress: :8890
+
+webrtc: true
+webrtcAddress: :8889
+
+pathDefaults:
+  record: false
+  recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+
+paths:
+  all_others: {}
