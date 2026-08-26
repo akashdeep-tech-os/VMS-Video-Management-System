@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import Hls from "hls.js";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 
 function HLSPlayer({ url, zoom = 1, cameraId, registerVideoRef, unregisterVideoRef }) {
   const videoRef = useRef(null);

@@ -1,5 +1,5 @@
 import { useRef, useState, useCallback, useEffect } from "react";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 
 function MultiTimeline() {
   const {

@@ -3,7 +3,7 @@ import Sidebar from "./Sidebar";
 import Header from "./Header";
 import "./MainLayout.css";
 import { Outlet } from "react-router-dom";
-import { useGridFullscreen } from "../../Context/GridFullscreenContext";
+import { useGridFullscreen } from "../../context/GridFullscreenContext";
 
 const MainLayout = () => {
   const { isGridFullscreen } = useGridFullscreen();

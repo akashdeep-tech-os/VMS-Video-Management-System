@@ -31,7 +31,7 @@ import {
 
 import { BsFillGridFill } from "react-icons/bs";
 
-import { BlacklistIcon } from "../../pages/BlacklistVehicles";
+import { BlacklistIcon } from "../blacklist/BlacklistIcon";
 
 export const sidebarConfig = [
   {

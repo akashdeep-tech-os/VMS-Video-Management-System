@@ -3,7 +3,7 @@ import { FaChevronDown, FaSearch, FaTimes } from "react-icons/fa";
 import { FiVideo } from "react-icons/fi";
 import { MdOutlineVideocamOff } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 
 const groupExpand = {
   hidden: { opacity: 0, height: 0 },

@@ -2,7 +2,7 @@ import { useMemo, useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { FaTimes, FaCheckDouble } from "react-icons/fa";
 import { AlertTriangle, AlertCircle, Info, Eye, Radio, UserX, LogOut, Minus, ChevronDown } from "lucide-react";
-import { useLiveStreaming } from "../../Context/LiveStreamingContext";
+import { useLiveStreaming } from "../../context/LiveStreamingContext";
 
 const SEVERITY_CONFIG = {
   critical: { icon: AlertTriangle, color: "text-red-500", bg: "bg-red-50 dark:bg-red-900/20", dot: "bg-red-500" },

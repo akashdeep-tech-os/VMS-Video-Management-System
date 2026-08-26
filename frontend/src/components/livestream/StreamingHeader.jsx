@@ -12,7 +12,7 @@ import {
 import { IoReorderThreeOutline } from "react-icons/io5";
 import { Radio, LayoutGrid } from "lucide-react";
 import BodyHead from "../common/BodyHead";
-import { useLiveStreaming } from "../../Context/LiveStreamingContext";
+import { useLiveStreaming } from "../../context/LiveStreamingContext";
 
 const autoShiftOptions = [
   { label: "30 sec", value: 30 },

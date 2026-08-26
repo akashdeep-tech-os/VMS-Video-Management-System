@@ -8,7 +8,7 @@ import {
   useMemo,
   useRef,
 } from "react";
-import { CameraData } from "../components/addCamera/CameraData";
+import { CameraData } from "../config/cameraData";
 import userService, { currentUserId } from "../api/userService";
 import cameraService from "../api/cameraService";
 

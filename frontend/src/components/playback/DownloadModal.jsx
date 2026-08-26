@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 import { FaDownload, FaTimes } from "react-icons/fa";
 
 function PeriodToggle({ value, onChange }) {

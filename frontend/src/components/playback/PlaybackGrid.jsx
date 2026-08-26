@@ -1,5 +1,5 @@
 import WebRTCPlayer from "./WebRTCPlayer";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 import { useMemo } from "react";
 import { FaVideo } from "react-icons/fa";
 

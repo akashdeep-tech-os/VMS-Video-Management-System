@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react'
-import * as cameraApi from '../api/cameras'
+import cameraService from '../api/cameraService'
 
 const STATUS_POLL_MS = 10000
 const CAMERA_POLL_MS = 30000
@@ -23,7 +23,7 @@ export function CameraProvider({ children }) {
 
   const refreshCameras = useCallback(async () => {
     try {
-      const { data } = await cameraApi.listCameras()
+      const data = await cameraService.list()
       if (mountedRef.current) {
         setCameras(data)
         setError(null)
@@ -37,9 +37,9 @@ export function CameraProvider({ children }) {
 
   const refreshStatuses = useCallback(async () => {
     try {
-      const { data } = await cameraApi.getCameraStatuses()
+      const data = await cameraService.list()
       if (mountedRef.current) {
-        setStatuses(Object.fromEntries(data.map((s) => [s.camera_id, s])))
+        setStatuses(Object.fromEntries(data.map((s) => [s.id, { state: s.active !== false ? 'online' : 'offline' }])))
         setLastUpdated(Date.now())
       }
     } catch {
@@ -60,7 +60,7 @@ export function CameraProvider({ children }) {
 
   const addCamera = useCallback(
     async (payload) => {
-      const { data } = await cameraApi.createCamera(payload)
+      const data = await cameraService.create(payload)
       await refreshCameras()
       await refreshStatuses()
       return data
@@ -70,17 +70,16 @@ export function CameraProvider({ children }) {
 
   const updateCamera = useCallback(
     async (id, payload) => {
-      const { data } = await cameraApi.updateCamera(id, payload)
+      await cameraService.setLocation(id, payload)
       await refreshCameras()
       await refreshStatuses()
-      return data
     },
     [refreshCameras, refreshStatuses],
   )
 
   const removeCamera = useCallback(
     async (id) => {
-      await cameraApi.deleteCamera(id)
+      await cameraService.remove(id)
       setStatuses((prev) => {
         const next = { ...prev }
         delete next[id]

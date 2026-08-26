@@ -16,7 +16,7 @@ import {
   FaExpand,
   FaCompress,
 } from "react-icons/fa";
-import { usePlayback } from "../../Context/PlaybackContext";
+import { usePlayback } from "../../context/PlaybackContext";
 
 function PlaybackToolbar() {
   const {

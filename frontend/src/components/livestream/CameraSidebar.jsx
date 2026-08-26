@@ -10,7 +10,7 @@ import {
 import { FiVideo } from "react-icons/fi";
 import { MdOutlineVideocamOff } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
-import { useLiveStreaming } from "../../Context/LiveStreamingContext";
+import { useLiveStreaming } from "../../context/LiveStreamingContext";
 import PTZPanel from "./PTZPanel";
 
 const CustomCheckbox = ({

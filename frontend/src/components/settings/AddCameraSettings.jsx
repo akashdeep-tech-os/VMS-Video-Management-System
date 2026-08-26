@@ -1,9 +1,9 @@
-import Addcamera from "../../pages/Addcamera";
+import AddCamera from "../../pages/settings/AddCamera";
 
 const AddCameraSettings = ({ department, onBack }) => {
   return (
     <div className="h-full">
-      <Addcamera onBack={onBack} />
+      <AddCamera onBack={onBack} />
     </div>
   );
 };
