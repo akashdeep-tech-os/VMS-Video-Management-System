@@ -1,0 +1,15 @@
+node_modules
+dist
+build
+.git
+.gitignore
+Dockerfile
+docker-compose.yml
+# Dev env files must NOT leak into the image — the API base is baked in via the
+# VITE_API_BASE_URL build arg (defaults to same-origin /api/v1). nginx.conf is
+# deliberately NOT ignored: the Docker build copies it into the nginx stage.
+.env
+.env.local
+.env.*.local
+*.log
+frontend.zip

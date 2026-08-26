@@ -1,0 +1,28 @@
+# Frontend as its own compose project. Joins the shared external "app-net" so
+# nginx can resolve the backend container (edge-server) by name across projects.
+#
+# One-time setup (see deploy doc): create the network and attach the backend too:
+#   docker network create app-net
+#   # add `app-net` (external) to the backend's docker-compose.yml, then:
+#   cd ~/backend && docker compose up -d
+#
+# Deploy the frontend:
+#   docker compose up -d --build
+services:
+  frontend:
+    build:
+      context: .
+      args:
+        # Same-origin API path; nginx proxies /api -> edge-server:8080.
+        VITE_API_BASE_URL: /api/v1
+    image: surakshit-vms-frontend
+    container_name: surakshit-vms-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    networks:
+      - app-net
+
+networks:
+  app-net:
+    external: true

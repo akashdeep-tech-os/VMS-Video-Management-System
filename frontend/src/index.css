@@ -1,1 +1,338 @@
 @import "tailwindcss";
+
+/* =========================
+   THEME CONFIG
+========================= */
+@theme {
+  --color-brand-primary: #2563eb;
+  --font-display: "Inter", "Roboto", "sans-serif";
+}
+
+@layer base {
+  body {
+    margin: 0;
+    font-family: "Inter", "Roboto", sans-serif;
+    background-color: var(--bg-color);
+    color: var(--text-dark);
+    transition:
+      background-color 0.3s ease,
+      color 0.3s ease;
+    height: 100%;
+  }
+
+  html {
+    height: 100%;
+  }
+
+  #root {
+    height: 100%;
+  }
+}
+
+/* =========================
+   GLASS EFFECT
+========================= */
+.glass-card {
+  background: rgba(255, 255, 255, 0.7);
+  backdrop-filter: blur(12px) saturate(180%);
+  -webkit-backdrop-filter: blur(12px) saturate(180%);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+}
+
+body.dark-mode .glass-card {
+  background: rgba(10, 16, 32, 0.6);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.3);
+}
+
+.glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 16px;
+  box-shadow: var(--shadow-sm);
+}
+
+body.dark-mode .glass-card {
+  background: var(--card-bg);
+  border: 1px solid var(--border-color);
+  box-shadow: var(--shadow-sm);
+}
+
+/* =========================
+   HOVER EFFECT
+========================= */
+.card-hover {
+  transition: all 0.25s ease;
+}
+
+.card-hover:hover {
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-md);
+}
+
+/* =========================
+   DROPDOWN / POPOVER SURFACE
+=========================
+   One surface for every floating menu, so they can't drift apart again.
+   Components keep their own positioning, width and z-index; this owns only
+   the look.
+
+   FULLY OPAQUE on purpose. These panels float over dense content — video
+   tiles, tables, maps — and any translucency (previously `/95` plus
+   backdrop-blur on some, nothing on others) made the text behind bleed
+   through and read as blurry. A menu is a surface, not a scrim.
+   Modal backdrops (bg-black/50) are deliberately NOT this class. */
+.vms-dropdown {
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
+  overflow: hidden;
+}
+
+/* =========================
+   INDETERMINATE PROGRESS
+=========================
+   For operations whose duration cannot be known in advance (e.g. sequential,
+   rate-paced NVR channel discovery). Slides a short bar across the track. */
+@keyframes vms-indeterminate {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* =========================
+   SCROLLBAR HIDE
+========================= */
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* =========================
+   GLOBAL CUSTOM SCROLLBAR
+========================= */
+*::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 10px;
+  opacity: 0.5;
+}
+
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-color);
+  opacity: 1;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--primary-color) transparent;
+}
+
+/* =========================
+   CUSTOM SCROLLBAR (Utility)
+========================= */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--primary-color);
+  border-radius: 10px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--primary-color);
+  opacity: 1;
+}
+
+/* =========================
+   SIDEBAR SMALL SCROLLBAR
+========================= */
+.sidebar-scroll::-webkit-scrollbar {
+  width: 3px;
+}
+.sidebar-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 10px;
+}
+.sidebar-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.3);
+}
+.sidebar-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
+}
+
+/* =========================
+   FLOATING WINDOW OVERLAY
+========================= */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes window-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.25s ease-out forwards;
+}
+
+.animate-window-in {
+  animation: window-in 0.25s ease-out forwards;
+}
+
+/* =========================
+   CHART BAR GROW ANIMATION
+========================= */
+@keyframes barGrowUp {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+/* =========================
+   EXTRACTED GLOBAL UTILITIES
+   (formerly inline styles)
+========================= */
+
+/* ── Layout ────────────────────────────────────── */
+.map-full {
+  width: 100%;
+  height: 100%;
+}
+
+.absolute-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.will-change-width {
+  will-change: width;
+}
+
+.min-h-sidebar-header {
+  min-height: 64px;
+}
+
+@media (max-width: 767px) {
+  .min-h-sidebar-header {
+    min-height: 56px;
+  }
+}
+
+.min-h-chart {
+  min-height: 200px;
+}
+
+.mt-calendar {
+  margin-top: -2px;
+}
+
+/* ── Backgrounds ───────────────────────────────── */
+.login-bg {
+  background-size: cover;
+  background-position: center;
+}
+
+.header-banner {
+  background-size: cover;
+  background-position: center;
+}
+
+.gradient-blue-bar {
+  background: linear-gradient(to bottom, #93c5fd, #2563eb);
+}
+
+.recording-block {
+  background: color-mix(in srgb, var(--success) 35%, transparent);
+}
+
+.grid-line {
+  background: color-mix(in srgb, var(--text-muted) 15%, transparent);
+}
+
+/* ── Glow / Cursor ─────────────────────────────── */
+.cursor-glow {
+  background: var(--primary-color);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--primary-color) 60%, transparent);
+}
+
+.glow-primary-soft {
+  background: color-mix(in srgb, var(--primary-color) 15%, transparent);
+}
+
+.glow-primary-medium {
+  background: color-mix(in srgb, var(--primary-color) 25%, transparent);
+}
+
+.glow-online {
+  background-color: rgba(34, 197, 94, 0.3);
+}
+
+.glow-danger {
+  background-color: rgba(239, 68, 68, 0.3);
+}
+
+.glow-online-dot {
+  background-color: #22c55e;
+}
+
+.glow-danger-dot {
+  background-color: #ef4444;
+}
+
+/* ── Animation ──────────────────────────────────── */
+.spin-slow {
+  animation-duration: 3s;
+}
+
+/* ── Select dropdown background (for custom arrows) ── */
+.select-arrow-bg {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236b7280' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 10px;
+  appearance: none;
+}
