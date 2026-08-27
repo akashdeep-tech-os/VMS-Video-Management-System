@@ -13,12 +13,12 @@ function mapCamera(cam) {
   return {
     id: cam.id,
     name: cam.name,
-    ip: cam.camera_ip || cam.nvr_ip || "—",
-    location: cam.zone || cam.nvr_name || "—",
-    group: cam.zone || cam.nvr_name || "Ungrouped",
-    subGroup: cam.nvr_name || "—",
+    ip: cam.camera_ip || cam.nvr_ip || cam.ip_address || "—",
+    location: cam.station_name || cam.zone || cam.nvr_name || "—",
+    group: cam.station_name || cam.zone || cam.nvr_name || "Ungrouped",
+    subGroup: cam.site_name || cam.nvr_name || "—",
     // Table filters on "online"/"offline"; derive from health/active flags.
-    status: cam.active === false ? "offline" : cam.healthy ? "online" : "offline",
+    status: cam.active === false ? "offline" : cam.healthy || cam.stream_state === "registered" ? "online" : "offline",
     cameraType: cam.camera_type || "—",
     visible: cam.active !== false,
   };

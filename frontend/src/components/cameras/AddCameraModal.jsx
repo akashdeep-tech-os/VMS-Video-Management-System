@@ -5,6 +5,7 @@ import { IoChevronDown } from "react-icons/io5";
 import { FiZap, FiHardDrive, FiClock } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import nvrService from "../../api/nvrService";
+import cameraService from "../../api/cameraService";
 import { siteService } from "../../api/orgService";
 
 /** How long a SUCCESSFUL Test banner stays up before dismissing itself.
@@ -403,21 +404,33 @@ function AddCameraModal({
     if (form.connectionType === "RTSP" && !form.rtsp) return;
     if (form.connectionType !== "RTSP" && !form.ip) return;
 
-    // Tracked separately from testStatus: sharing it made the TEST button flip
-    // to "Testing..." while an ADD was running, which read as the wrong action
-    // being in flight.
     setIsSubmitting(true);
     try {
-      // Real run: registers-or-finds the device and creates its channels.
-      // preview=false, method=AUTO, rewrite_rtsp_port=true.
-      await nvrService.discoverForConnection(
-        buildNvrBody(),
-        discoveryOpts(false),
-      );
-      onSave(); // parent refetches from the backend
-      // Clear before closing so the next Add opens blank even if the modal is
-      // reopened with identical props (the open-effect also resets, this makes
-      // it immediate and independent of prop identity).
+      let createdCamera;
+      if (form.connectionType === "RTSP") {
+        // RTSP direct: register via NVR discovery (if backend supports it)
+        await nvrService.discoverForConnection(
+          buildNvrBody(),
+          discoveryOpts(false),
+        );
+      } else {
+        // ONVIF: use the real camera registration endpoint
+        createdCamera = await cameraService.create({
+          name: form.name,
+          ip_address: form.ip,
+          onvif_port: form.httpPort ? Number(form.httpPort) : 80,
+          rtsp_port: form.rtspPort ? Number(form.rtspPort) : 554,
+          username: form.username || "",
+          password: form.password || "",
+          latitude: form.latitude ? Number(form.latitude) : null,
+          longitude: form.longitude ? Number(form.longitude) : null,
+          station_id: selectedStation?.id || null,
+          station_name: form.group || null,
+          site_id: selectedSite?.id || null,
+          site_name: form.subGroup || null,
+        });
+      }
+      onSave(createdCamera); // parent refetches from the backend
       handleReset();
       setNvrPreviewOk(false);
       setIsAddingSite(false);
@@ -440,18 +453,39 @@ function AddCameraModal({
     setTestStatus("testing");
     setTestResult(null);
     try {
-      // Preview (dry run) discovery: preview=true, method=ONVIF, rewrite_rtsp_port=true.
-      const res = await nvrService.discoverForConnection(
-        buildNvrBody(),
-        discoveryOpts(true),
-      );
-      const found =
-        res?.channels_probed ?? res?.registered ?? (res?.cameras?.length || 0);
-      setTestResult({
-        reachable: true,
-        protocol: res?.method,
-        message: `Reachable — ${found} channel(s) found. Click Add Device to register them.`,
-      });
+      if (form.connectionType === "RTSP") {
+        // RTSP: use NVR discovery for preview
+        const res = await nvrService.discoverForConnection(
+          buildNvrBody(),
+          discoveryOpts(true),
+        );
+        const found =
+          res?.channels_probed ?? res?.registered ?? (res?.cameras?.length || 0);
+        setTestResult({
+          reachable: true,
+          protocol: res?.method,
+          message: `Reachable — ${found} channel(s) found. Click Add Device to register them.`,
+        });
+      } else {
+        // ONVIF: probe the camera by attempting create, then delete if test-only
+        const created = await cameraService.create({
+          name: form.name || "Test Camera",
+          ip_address: form.ip,
+          onvif_port: form.httpPort ? Number(form.httpPort) : 80,
+          rtsp_port: form.rtspPort ? Number(form.rtspPort) : 554,
+          username: form.username || "",
+          password: form.password || "",
+        });
+        // Camera was created during test - remove it since user only wanted to test
+        if (created?.id) {
+          await cameraService.remove(created.id);
+        }
+        setTestResult({
+          reachable: true,
+          protocol: "ONVIF",
+          message: "Camera reachable and validated. Click Add Device to register.",
+        });
+      }
       setTestStatus("connected");
       setNvrPreviewOk(true);
     } catch (err) {

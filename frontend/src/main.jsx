@@ -5,15 +5,8 @@ import "./theme/classic/styles.css";
 import App from "./App.jsx";
 import "maplibre-gl/dist/maplibre-gl.css";
 
-async function enableMocking() {
-  const { worker } = await import("./mocks/browser");
-  return worker.start({ onUnhandledRequest: "bypass" });
-}
-
-enableMocking().then(() => {
-  createRoot(document.getElementById("root")).render(
-    <StrictMode>
-      <App />
-    </StrictMode>,
-  );
-});
+createRoot(document.getElementById("root")).render(
+  <StrictMode>
+    <App />
+  </StrictMode>,
+);

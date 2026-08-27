@@ -28,37 +28,7 @@ export const stationService = {
 
 export const departmentService = {
   list: async (params) => {
-    try {
-      return await apiClient.get("/departments", params);
-    } catch {
-      console.warn("Backend unreachable — returning mock departments");
-      return [
-        {
-          id: "mock_dept_a",
-          name: "Delhi Police Dwarka District",
-          group_name: "Police Stations",
-          no_of_cameras: 50,
-          no_of_users: 20,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "mock_dept_b",
-          name: "Delhi Metro",
-          group_name: "Metro Stations",
-          no_of_cameras: 30,
-          no_of_users: 15,
-          created_at: new Date().toISOString(),
-        },
-        {
-          id: "mock_dept_c",
-          name: " Delhi Railway",
-          group_name: "Railway Stations",
-          no_of_cameras: 20,
-          no_of_users: 10,
-          created_at: new Date().toISOString(),
-        },
-      ];
-    }
+    return await apiClient.get("/departments", params);
   },
   // expand: "stats" adds { cameras, nvrs, stations, users } — delete-impact counts.
   get: (id, params) => apiClient.get(`/departments/${id}`, params),

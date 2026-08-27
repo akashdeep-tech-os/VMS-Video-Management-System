@@ -20,6 +20,10 @@ srtAddress: :8890
 webrtc: true
 webrtcAddress: :8889
 
+# Avoid port conflict with FastAPI backend (port 8000).
+rtpAddress: :8002
+rtcpAddress: :8003
+
 pathDefaults:
   record: false
   recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f

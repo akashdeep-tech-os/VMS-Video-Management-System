@@ -125,22 +125,8 @@ export function rightsForRole(role) {
 const userService = {
   // ---- auth ----
   async login(username, password) {
-    try {
-      const data = await apiClient.post("/auth/login", { username, password });
-      return { ...data, rights: rightsForRole(data.role) };
-    } catch {
-      console.warn("Backend unreachable — using mock superadmin login");
-      const token = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiU1VQRVJfQURNSU4iLCJ1c2VybmFtZSI6InN1cGVyYWRtaW4ifQ.fake";
-      return {
-        token,
-        username: "superadmin",
-        first_name: "Super",
-        last_name: "Admin",
-        full_name: "Super Admin",
-        role: "SUPER_ADMIN",
-        rights: rightsForRole("SUPER_ADMIN"),
-      };
-    }
+    const data = await apiClient.post("/auth/login", { username, password });
+    return { ...data, rights: rightsForRole(data.role) };
   },
 
   async getMe() {

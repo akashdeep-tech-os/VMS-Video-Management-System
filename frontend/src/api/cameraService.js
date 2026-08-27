@@ -6,6 +6,10 @@ const cameraService = {
     return apiClient.get("/cameras");
   },
 
+  tree() {
+    return apiClient.get("/cameras/tree");
+  },
+
   get(id) {
     return apiClient.get(`/cameras/${id}`);
   },

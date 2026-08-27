@@ -127,8 +127,7 @@ const CameraSidebar = React.memo(
     const {
       reorderCamera,
       selectAllInGroup,
-      clearAll,
-      selectAll,
+      clearAllCameras,
       selectedCams: allSelectedCams,
     } = useLiveStreaming();
     const [searchTerm, setSearchTerm] = useState("");
@@ -310,9 +309,12 @@ const CameraSidebar = React.memo(
               }
               onChange={() => {
                 if (allSelectedCams.length === allCamsCount) {
-                  clearAll();
+                  clearAllCameras();
                 } else {
-                  selectAll();
+                  // Select all cameras across all groups
+                  cameraGroups.forEach((group) => {
+                    selectAllInGroup(group.name);
+                  });
                 }
                 if (isMobile) setShowSidebar(false);
               }}
@@ -372,7 +374,7 @@ const CameraSidebar = React.memo(
             {allSelectedCams.length > 0 && (
               <button
                 onClick={() => {
-                  clearAll();
+                  clearAllCameras();
                   if (isMobile) setShowSidebar(false);
                 }}
                 className="flex items-center gap-1 px-2 py-1 text-[14px] font-medium text-red-500 hover:bg-red-500/10 rounded-md transition-colors"

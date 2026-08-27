@@ -13,7 +13,6 @@ import {
   ChevronRight,
   X,
 } from "lucide-react";
-import { alerts as mockAlerts } from "../dashboard/mockData";
 
 // Notification type configuration
 const NOTIFICATION_CONFIG = {
@@ -115,9 +114,7 @@ function formatRelativeTime(timestamp) {
 
 function NotificationButton() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState(() =>
-    transformAlertsToNotifications(mockAlerts)
-  );
+  const [notifications, setNotifications] = useState([]);
   const [filter, setFilter] = useState("all"); // all, unread, critical, warning, info
   const dropdownRef = useRef(null);
   const buttonRef = useRef(null);

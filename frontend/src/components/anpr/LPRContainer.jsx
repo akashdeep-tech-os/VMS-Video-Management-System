@@ -59,11 +59,17 @@ function LPRContainer() {
     try {
       const response = await fetch("http://127.0.0.1:8000/api/plates");
 
+      if (!response.ok) {
+        setRecentPlates([]);
+        return;
+      }
+
       const data = await response.json();
 
-      setRecentPlates(data);
+      setRecentPlates(Array.isArray(data) ? data : []);
     } catch (error) {
       console.log(error);
+      setRecentPlates([]);
     }
   };
 

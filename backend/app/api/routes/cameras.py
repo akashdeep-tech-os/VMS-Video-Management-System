@@ -1,6 +1,7 @@
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -13,9 +14,34 @@ from app.services.status import status_service
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/camera", tags=["cameras"])
+router = APIRouter(prefix="/cameras", tags=["cameras"])
 
 CONNECTION_FIELDS = {"ip_address", "onvif_port", "rtsp_port", "username", "password"}
+
+
+# --- Tree response models for the live monitoring sidebar ---
+
+class TreeCamera(BaseModel):
+    camera_id: int
+    name: str
+    online: bool = True
+    camera_type: str = "bullet"
+
+
+class TreeSite(BaseModel):
+    site_id: int | None = None
+    site_name: str
+    cameras: list[TreeCamera] = []
+
+
+class TreeStation(BaseModel):
+    station_id: int | None = None
+    station_name: str
+    sites: list[TreeSite] = []
+
+
+class CameraTreeResponse(BaseModel):
+    stations: list[TreeStation] = []
 
 
 async def _register_path(camera: Camera) -> None:
@@ -49,6 +75,78 @@ async def camera_statuses(db: Session = Depends(get_db)) -> list[CameraStatus]:
     return await status_service.statuses(cameras)
 
 
+@router.get("/tree", response_model=CameraTreeResponse)
+def camera_tree(db: Session = Depends(get_db)) -> CameraTreeResponse:
+    """Return all enabled cameras grouped by station -> site for the live monitoring sidebar.
+
+    Cameras that have station_name/site_name set are grouped hierarchically.
+    Cameras without station info are placed under a default "All Cameras" group.
+    """
+    cameras = list(
+        db.scalars(
+            select(Camera).where(Camera.enabled == True).order_by(Camera.name)
+        ).all()
+    )
+
+    # Group cameras by station_name, then by site_name
+    station_map: dict[str, dict] = {}
+    ungrouped: list[TreeCamera] = []
+
+    for cam in cameras:
+        cam_obj = TreeCamera(
+            camera_id=cam.id,
+            name=cam.name,
+            online=cam.stream_state == "registered",
+            camera_type="bullet",
+        )
+        st_name = (cam.station_name or "").strip()
+        si_name = (cam.site_name or "").strip()
+
+        if not st_name:
+            ungrouped.append(cam_obj)
+            continue
+
+        if st_name not in station_map:
+            station_map[st_name] = {
+                "station_id": cam.station_id,
+                "station_name": st_name,
+                "sites": {},
+            }
+        st_entry = station_map[st_name]
+
+        if not si_name:
+            # Camera has station but no site — put in a default site
+            si_name = "Default Site"
+        if si_name not in st_entry["sites"]:
+            st_entry["sites"][si_name] = {
+                "site_id": cam.site_id if si_name != "Default Site" else None,
+                "site_name": si_name,
+                "cameras": [],
+            }
+        st_entry["sites"][si_name]["cameras"].append(cam_obj)
+
+    # Build final response
+    stations = []
+    for st_data in station_map.values():
+        sites = [TreeSite(**s) for s in st_data["sites"].values()]
+        stations.append(
+            TreeStation(
+                station_id=st_data["station_id"],
+                station_name=st_data["station_name"],
+                sites=sites,
+            )
+        )
+
+    # Ungrouped cameras go under a fallback station
+    if ungrouped:
+        fallback_site = TreeSite(site_name="All Cameras", cameras=ungrouped)
+        stations.append(
+            TreeStation(station_name="All Cameras", sites=[fallback_site])
+        )
+
+    return CameraTreeResponse(stations=stations)
+
+
 @router.post("", response_model=CameraRead, status_code=201)
 async def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) -> Camera:
     probe = await probe_camera(payload.ip_address, payload.onvif_port, payload.rtsp_port, payload.username, payload.password)
@@ -63,6 +161,12 @@ async def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) ->
         rtsp_port=payload.rtsp_port,
         username=payload.username,
         password=payload.password,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        station_id=payload.station_id,
+        station_name=payload.station_name,
+        site_id=payload.site_id,
+        site_name=payload.site_name,
     )
     _apply_probe(camera, probe)
     db.add(camera)

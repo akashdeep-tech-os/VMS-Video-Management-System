@@ -2,7 +2,7 @@ import { useState, useRef, useMemo, useEffect } from "react";
 import MapGL, { Marker, Popup } from "react-map-gl/maplibre";
 import { ZoomIn, ZoomOut, Search, Navigation, Crosshair } from "lucide-react";
 import "maplibre-gl/dist/maplibre-gl.css";
-import { cameras } from "./mockData";
+import { districts } from "./mockData";
 
 const OSM_STYLE = {
   version: 8,
@@ -17,51 +17,14 @@ const OSM_STYLE = {
   layers: [{ id: "osm", type: "raster", source: "osm" }],
 };
 
-// Deterministic spread of cameras within each district
-const districtCenters = {
-  Muradka: { lat: 28.681, lng: 77.152 },
-  Nangloi: { lat: 28.618, lng: 77.05 },
-  "Nihal Vihar": { lat: 28.632, lng: 77.063 },
-  "Sultan Puri": { lat: 28.67, lng: 77.123 },
-  "Paschim Vihar East": { lat: 28.652, lng: 77.103 },
-  "Paschim Vihar West": { lat: 28.65, lng: 77.09 },
-  "Rani Bagh": { lat: 28.682, lng: 77.131 },
-  Mangolpuri: { lat: 28.691, lng: 77.11 },
-  Ranhola: { lat: 28.64, lng: 77.078 },
-  Mundka: { lat: 28.68, lng: 77.07 },
-  "Raj Park": { lat: 28.638, lng: 77.141 },
-};
-
-// Seeded pseudo-random for consistent placement per camera
-function seededRandom(seed) {
-  let x = Math.sin(seed * 9301 + 49297) * 233280;
-  return x - Math.floor(x);
-}
-
-// Build individual camera markers from the central cameras array
-const cameraSites = cameras.map((cam, idx) => {
-  const center = districtCenters[cam.district] || { lat: 28.65, lng: 77.1 };
-  const r1 = seededRandom(idx + 1);
-  const r2 = seededRandom(idx + 1000);
-  return {
-    id: cam.id,
-    name: cam.name,
-    ip: cam.ip,
-    type: cam.type,
-    district: cam.district,
-    location: cam.location,
-    status: cam.status === "Online" ? "online" : "offline",
-    lat: center.lat + (r1 - 0.5) * 0.025,
-    lng: center.lng + (r2 - 0.5) * 0.025,
-  };
-});
-
 const statusColors = {
   online: "#22C55E",
   offline: "#EF4444",
+  idle: "#F59E0B",
+  disabled: "#6B7280",
 };
 
-function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
+function LiveMapOverview({ cameras = [], selectedDistrict, onDistrictClick }) {
   const mapRef = useRef(null);
   const [statusFilter, setStatusFilter] = useState("All");
   const [groupFilter, setGroupFilter] = useState("All");
@@ -73,76 +36,45 @@ function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
   const locationFetchedRef = useRef(false);
   const prevSelectedRef = useRef(null);
 
-  const departmentConfig = useMemo(() => {
-    const saved = localStorage.getItem("vms_departments");
-    const departments = saved ? JSON.parse(saved) : [];
-    return departments.length > 0
-      ? {
-          departmentName: departments[0].name,
-          groupName: departments[0].groupName,
-        }
-      : null;
-  }, []);
-
-  const groupLabel = departmentConfig?.groupName || "Group";
+  // Build camera sites from real backend data
+  const cameraSites = useMemo(() => {
+    return cameras
+      .filter((cam) => cam.latitude != null && cam.longitude != null)
+      .map((cam) => ({
+        id: cam.id,
+        name: cam.name,
+        ip: cam.ip_address,
+        manufacturer: cam.manufacturer,
+        model: cam.model,
+        status: cam.enabled ? "online" : "disabled",
+        lat: cam.latitude,
+        lng: cam.longitude,
+      }));
+  }, [cameras]);
 
   const groups = useMemo(
-    () => [...new Set(cameras.map((c) => c.district))],
-    [],
+    () => [...new Set(cameras.map((c) => c.manufacturer).filter(Boolean))],
+    [cameras],
   );
 
   const filteredSites = useMemo(() => {
     return cameraSites.filter((site) => {
-      const matchesDistrict =
-        !selectedDistrict || site.district === selectedDistrict;
       const matchesSearch =
         site.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        site.ip.toLowerCase().includes(searchQuery.toLowerCase());
+        (site.ip && site.ip.toLowerCase().includes(searchQuery.toLowerCase()));
       const matchesStatus =
         statusFilter === "All" ||
         site.status.toLowerCase() === statusFilter.toLowerCase();
       const matchesGroup =
-        groupFilter === "All" || site.district === groupFilter;
-      return matchesDistrict && matchesSearch && matchesStatus && matchesGroup;
+        groupFilter === "All" || site.manufacturer === groupFilter;
+      return matchesSearch && matchesStatus && matchesGroup;
     });
-  }, [searchQuery, statusFilter, groupFilter, selectedDistrict]);
+  }, [cameraSites, searchQuery, statusFilter, groupFilter]);
 
   const statusCounts = {
     online: filteredSites.filter((s) => s.status === "online").length,
     offline: filteredSites.filter((s) => s.status === "offline").length,
   };
-
-  // Fly to selected district — fit all its cameras
-  useEffect(() => {
-    if (!mapRef.current || !selectedDistrict) return;
-    if (prevSelectedRef.current === selectedDistrict) return;
-    prevSelectedRef.current = selectedDistrict;
-
-    const districtSites = cameraSites.filter(
-      (s) => s.district === selectedDistrict,
-    );
-    if (districtSites.length === 0) return;
-
-    const lngs = districtSites.map((s) => s.lng);
-    const lats = districtSites.map((s) => s.lat);
-    const bounds = [
-      [Math.min(...lngs), Math.min(...lats)],
-      [Math.max(...lngs), Math.max(...lats)],
-    ];
-    setTimeout(() => {
-      mapRef.current?.fitBounds(bounds, {
-        padding: 80,
-        maxZoom: 14,
-        duration: 1000,
-      });
-    }, 200);
-  }, [selectedDistrict]);
-
-  useEffect(() => {
-    if (!selectedDistrict) {
-      prevSelectedRef.current = null;
-    }
-  }, [selectedDistrict]);
 
   // Fit the map to all visible sites
   useEffect(() => {
@@ -266,7 +198,7 @@ function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
           />
           <input
             type="text"
-            placeholder="Search Camera / NVR name or IP..."
+            placeholder="Search Camera name or IP..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full text-xs pl-8 pr-3 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-dark)] outline-none placeholder:text-[var(--text-muted)]"
@@ -286,7 +218,7 @@ function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
           onChange={(e) => setGroupFilter(e.target.value)}
           className="text-xs px-0 sm:px-0 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-dark)] cursor-pointer outline-none shrink-0"
         >
-          <option value="All">All {groupLabel}</option>
+          <option value="All">All Brands</option>
           {groups.map((g) => (
             <option key={g} value={g}>
               {g}
@@ -317,7 +249,7 @@ function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
           attributionControl={{ compact: true }}
         >
           {filteredSites.map((site) => {
-            const color = statusColors[site.status];
+            const color = statusColors[site.status] || statusColors.idle;
             return (
               <Marker
                 key={site.id}
@@ -366,17 +298,17 @@ function LiveMapOverview({ selectedDistrict, onDistrictClick }) {
                 <div className="flex items-center gap-1.5 mb-0.5">
                   <span
                     className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: statusColors[popupInfo.status] }}
+                    style={{ backgroundColor: statusColors[popupInfo.status] || statusColors.idle }}
                   />
                   <span className="text-xs font-bold text-[var(--text-dark)]">
                     {popupInfo.name}
                   </span>
                 </div>
                 <div className="text-[10px] text-[var(--text-muted)]">
-                  {popupInfo.district} · {popupInfo.type} · {popupInfo.ip}
+                  {popupInfo.manufacturer || "Unknown"} {popupInfo.model || ""} · {popupInfo.ip}
                 </div>
                 <div className="text-[10px] text-[var(--text-muted)]">
-                  {popupInfo.location} · {popupInfo.status}
+                  {popupInfo.status}
                 </div>
                 <a
                   href={`https://www.google.com/maps/dir/?api=1&destination=${popupInfo.lat},${popupInfo.lng}`}

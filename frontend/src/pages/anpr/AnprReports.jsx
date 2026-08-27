@@ -3,7 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import BodyHead from "../../components/common/BodyHead";
 import BodyContainer from "../../components/common/BodyContainer";
 import MapModal from "../../components/common/MapModal";
-import { anprCameras } from "../../components/dashboard/mockData";
 import DetectionChart from "../../components/anpr/DetectionChart";
 import TopCamerasByDetections from "../../components/anpr/TopCamerasByDetections";
 
@@ -579,6 +578,9 @@ function AnprReports() {
   }, []);
 
   const groupLabel = departmentConfig?.groupName || "Group";
+
+  // ANPR cameras data - currently no backend endpoint, using empty array
+  const anprCameras = useMemo(() => [], []);
 
   const anprGroups = useMemo(
     () => [...new Set(anprCameras.map((c) => c.group))],

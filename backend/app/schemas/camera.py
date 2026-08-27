@@ -13,10 +13,15 @@ class CameraBase(BaseModel):
     rtsp_port: int = Field(default=554, ge=1, le=65535)
     username: str = Field(default="", max_length=255)
     password: str = Field(default="", max_length=255)
+    latitude: float | None = None
+    longitude: float | None = None
 
 
 class CameraCreate(CameraBase):
-    pass
+    station_id: int | None = None
+    station_name: str | None = None
+    site_id: int | None = None
+    site_name: str | None = None
 
 
 class CameraUpdate(BaseModel):
@@ -32,6 +37,8 @@ class CameraUpdate(BaseModel):
     rtsp_port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, max_length=255)
+    latitude: float | None = None
+    longitude: float | None = None
     enabled: bool | None = None
 
 
@@ -47,6 +54,12 @@ class CameraRead(CameraBase):
     rtsp_source: str = "none"
     stream_state: str = "idle"
     enabled: bool = True
+    station_id: int | None = None
+    station_name: str | None = None
+    site_id: int | None = None
+    site_name: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     created_at: datetime
     updated_at: datetime
 

@@ -38,6 +38,16 @@ class Camera(Base):
     # Stream registration state with MediaMTX: idle | registered | error.
     stream_state: Mapped[str] = mapped_column(String(16), nullable=False, default="idle", server_default="idle")
 
+    # GPS coordinates for map display.
+    # Organization placement — which station/site this camera belongs to.
+    station_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    station_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    site_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    site_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    latitude: Mapped[float | None] = mapped_column(nullable=True)
+    longitude: Mapped[float | None] = mapped_column(nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(

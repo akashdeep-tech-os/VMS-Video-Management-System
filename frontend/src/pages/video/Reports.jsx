@@ -3,9 +3,6 @@ import { useSearchParams } from "react-router-dom";
 import BodyHead from "../../components/common/BodyHead";
 import BodyContainer from "../../components/common/BodyContainer";
 import MapModal from "../../components/common/MapModal";
-// Alerts have no backend yet — kept on mock data. Cameras, users and the
-// per-police-station breakdown are pulled live from the backend below.
-import { alerts } from "../../components/dashboard/mockData";
 import cameraService from "../../api/cameraService";
 import userService from "../../api/userService";
 import dashboardService from "../../api/dashboardService";
@@ -80,6 +77,8 @@ function Reports() {
   const [cameras, setCameras] = useState([]);
   const [users, setUsers] = useState([]);
   const [stationStats, setStationStats] = useState([]);
+  // Alerts: no backend endpoint yet, using empty array
+  const alerts = [];
 
   useEffect(() => {
     cameraService

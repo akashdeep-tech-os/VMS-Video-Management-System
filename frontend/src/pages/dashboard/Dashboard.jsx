@@ -5,38 +5,13 @@ import BottomStats from "../../components/dashboard/BottomStats";
 import TotalCameraGraph from "../../components/dashboard/TotalCameraGraph";
 import CameraReport from "../../components/dashboard/CameraReport";
 import LiveMapOverview from "../../components/dashboard/LiveMapOverview";
-import { cameras, getDashboardStats } from "../../components/dashboard/mockData";
 import dashboardService from "../../api/dashboardService";
 import systemService from "../../api/systemService";
-
-// The KPI cards, the two bar charts (TotalCameraGraph, CameraReport) and the
-// system-health strip are wired to the live API. The bar charts render whatever
-// /dashboard/camera-stats returns — empty when the DB is empty. Only
-// LiveMapOverview still uses mock geo markers.
-const baseDashboardData = {
-  camera: cameras.map((c) => ({
-    id: parseInt(c.id.replace("CAM-", "")),
-    name: c.name,
-    ip: c.ip,
-    latitude: 28.6 + Math.random() * 0.5,
-    longitude: 77.1 + Math.random() * 0.5,
-    status: c.status === "Online" ? "live" : "offline",
-  })),
-  stats: getDashboardStats(),
-  cameraData: [
-    { day: "Mon", live: 135, offline: 65 },
-    { day: "Tue", live: 192, offline: 8 },
-    { day: "Wed", live: 188, offline: 12 },
-    { day: "Thu", live: 150, offline: 50 },
-    { day: "Fri", live: 193, offline: 7 },
-    { day: "Sat", live: 70, offline: 130 },
-    { day: "Sun", live: 191, offline: 9 },
-  ],
-};
+import cameraService from "../../api/cameraService";
 
 // Map the backend /dashboard/summary payload into the five KPI cards TopCard renders.
 function buildStatsFromSummary(summary) {
-  if (!summary) return baseDashboardData.stats;
+  if (!summary) return [];
   const { users, cameras: cams, online, offline, alerts } = summary;
   return [
     {
@@ -113,9 +88,10 @@ function buildWorkingStatusData(stationStats) {
 
 const Dashboard = () => {
   const [selectedDistrict, setSelectedDistrict] = useState(null);
-  const [stats, setStats] = useState(baseDashboardData.stats);
+  const [stats, setStats] = useState([]);
   const [health, setHealth] = useState(null);
   const [stationStats, setStationStats] = useState([]);
+  const [cameras, setCameras] = useState([]);
 
   // Pull live KPI summary from the backend (once on mount).
   useEffect(() => {
@@ -135,6 +111,14 @@ const Dashboard = () => {
         if (!cancelled) setStationStats(Array.isArray(list) ? list : []);
       })
       .catch((err) => console.error("Dashboard camera-stats failed", err));
+
+    // Fetch real cameras for the map
+    cameraService
+      .list()
+      .then((list) => {
+        if (!cancelled) setCameras(Array.isArray(list) ? list : []);
+      })
+      .catch((err) => console.error("Dashboard camera list failed", err));
 
     return () => {
       cancelled = true;
@@ -164,7 +148,7 @@ const Dashboard = () => {
     };
   }, []);
 
-  const dashboardData = { ...baseDashboardData, stats };
+  const dashboardData = { stats };
 
   // Live per-station data straight from the backend. When the DB is empty the
   // backend returns [], and the charts render empty (no mock fallback).
@@ -218,6 +202,7 @@ const Dashboard = () => {
         </div>
         <div className="h-[300px] sm:h-[340px] md:h-auto md:min-h-0 chart-card-enter chart-card-enter-delay-3">
           <LiveMapOverview
+            cameras={cameras}
             selectedDistrict={selectedDistrict}
             onDistrictClick={setSelectedDistrict}
           />
