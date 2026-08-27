@@ -533,18 +533,12 @@ function UserSettings({ department, onUpdateDepartment, onBack }) {
         {/* HEADER */}
         <div className="flex flex-col sm:flex-row justify-between items-stretch sm:items-center min-h-[3rem] h-auto md:h-12 py-2.5 md:py-0 px-4 border-b border-[var(--border-color)] bg-[var(--card-bg)] flex-shrink-0 gap-2 sm:gap-0">
           <div className="flex items-center gap-2 shrink-0">
-            <button
-              onClick={onBack}
-              className="p-1.5 rounded-lg hover:bg-[var(--hover-bg)] text-[var(--text-muted)] hover:text-[var(--text-dark)] transition-colors"
-            >
-              <FaArrowLeft size={14} />
-            </button>
             <div className=" flex-shrink-0">
               <FaUsers className="text-[var(--primary-color)] text-[22px]" />
             </div>
             <div>
               <h2 className="text-xs md:text-[18px] font-bold tracking-tight text-[var(--text-dark)] leading-none">
-                User Management — {department?.name || "No department selected"}
+                User Management
               </h2>
             </div>
             <span className="text-[13px] bg-[var(--primary-color)]/10 text-[var(--primary-color)] px-2 py-0.5 rounded-full font-bold">
@@ -782,9 +776,7 @@ function UserSettings({ department, onUpdateDepartment, onBack }) {
                 <div className="flex items-center gap-2">
                   <FaUsers size={16} className="text-[var(--primary-color)]" />
                   <h3 className="text-sm font-bold tracking-tight text-[var(--text-dark)]">
-                    {editingId
-                      ? `Edit User — ${department?.name || ""}`
-                      : `Add User — ${department?.name || ""}`}
+                    {editingId ? `Edit User` : `Add User`}
                   </h3>
                 </div>
                 <button

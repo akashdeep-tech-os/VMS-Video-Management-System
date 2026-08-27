@@ -22,7 +22,13 @@ function Spinner({ size = 11 }) {
   );
 }
 
-function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartment }) {
+function AddCameraModal({
+  isOpen,
+  onClose,
+  onSave,
+  editingCamera,
+  currentDepartment,
+}) {
   const [form, setForm] = useState({
     name: "",
     department: "",
@@ -49,23 +55,30 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
   const [testResult, setTestResult] = useState(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const brandRef = useRef(null);
+  const brandBtnRef = useRef(null);
+  const [brandDropdownPos, setBrandDropdownPos] = useState({
+    top: 0,
+    left: 0,
+    width: 0,
+  });
 
   const brandOptions = [
-    { value: "cpplus", label: "CP PLUS" },
-    { value: "hifocus", label: "Hi-focus" },
+    { value: "axis", label: "Axis" },
+    { value: "bosch", label: "Bosch" },
+    { value: "consistent", label: "Consistent" },
+    { value: "cpplus", label: "CP Plus" },
+    { value: "dahua", label: "Dahua" },
+    { value: "godrej", label: "Godrej" },
     { value: "hawkvision", label: "Hawkvision" },
+    { value: "hifocus", label: "Hi-focus" },
     { value: "hikvision", label: "Hikvision" },
+    { value: "matrix", label: "Matrix" },
     { value: "prama", label: "Prama" },
     { value: "sparsh", label: "Sparsh" },
-    { value: "consistent", label: "Consistent" },
-    { value: "matrix", label: "Matrix" },
-    { value: "tvs", label: "TVS" },
-    { value: "godrej", label: "Godrej" },
+    { value: "tplink", label: "TP Link" },
     { value: "trueview", label: "TrueView" },
-    { value: "tplink", label: "TPLink" },
+    { value: "tvs", label: "TVS" },
     { value: "zebronics", label: "Zebronics" },
-    { value: "bosch", label: "Bosch" },
-    { value: "axis", label: "Axis" },
   ];
 
   const isEditMode = !!editingCamera;
@@ -89,9 +102,13 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
 
   // Find selected department - always look up latest from departments array
   const selectedDept = useMemo(() => {
-    const deptId = currentDepartment?.id || (form.department ? Number(form.department) : null);
+    const deptId =
+      currentDepartment?.id ||
+      (form.department ? Number(form.department) : null);
     if (!deptId) return currentDepartment || null;
-    return departments.find((d) => d.id === deptId) || currentDepartment || null;
+    return (
+      departments.find((d) => d.id === deptId) || currentDepartment || null
+    );
   }, [departments, form.department, currentDepartment]);
 
   // Derive groups from selectedDept
@@ -223,7 +240,10 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
 
   useEffect(() => {
     const handleEsc = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        setBrandOpen(false);
+      }
     };
     window.addEventListener("keydown", handleEsc);
     return () => window.removeEventListener("keydown", handleEsc);
@@ -235,9 +255,31 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
         setBrandOpen(false);
       }
     };
-    document.addEventListener("mousedown", handleClickOutside);
+    if (brandOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
     return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, []);
+  }, [brandOpen]);
+
+  useEffect(() => {
+    if (!brandOpen) return;
+    const reposition = () => {
+      if (brandBtnRef.current) {
+        const rect = brandBtnRef.current.getBoundingClientRect();
+        setBrandDropdownPos({
+          top: rect.bottom + 4,
+          left: rect.left,
+          width: rect.width,
+        });
+      }
+    };
+    window.addEventListener("scroll", reposition, true);
+    window.addEventListener("resize", reposition);
+    return () => {
+      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("resize", reposition);
+    };
+  }, [brandOpen]);
 
   // Auto-dismiss SUCCESS only. A FAILURE stays until the operator dismisses it
   // (the x) or runs another test: its message is the diagnostic they need to
@@ -259,7 +301,9 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     if (editingCamera) {
       setForm({
         name: editingCamera.name || "",
-        department: editingCamera.department || (currentDepartment?.id ? String(currentDepartment.id) : ""),
+        department:
+          editingCamera.department ||
+          (currentDepartment?.id ? String(currentDepartment.id) : ""),
         group: editingCamera.group || "",
         subGroup: editingCamera.subGroup || "",
         cameraNvrType: editingCamera.cameraNvrType || "",
@@ -312,7 +356,11 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     // URL cannot describe a multi-channel device. Selecting NVR while RTSP is
     // active would otherwise leave an unreachable combination selected, so
     // fall back to ONVIF.
-    if (name === "cameraNvrType" && value === "nvr" && form.connectionType === "RTSP") {
+    if (
+      name === "cameraNvrType" &&
+      value === "nvr" &&
+      form.connectionType === "RTSP"
+    ) {
       updates.connectionType = "ONVIF";
     }
     setForm((prev) => ({ ...prev, ...updates }));
@@ -362,7 +410,10 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     try {
       // Real run: registers-or-finds the device and creates its channels.
       // preview=false, method=AUTO, rewrite_rtsp_port=true.
-      await nvrService.discoverForConnection(buildNvrBody(), discoveryOpts(false));
+      await nvrService.discoverForConnection(
+        buildNvrBody(),
+        discoveryOpts(false),
+      );
       onSave(); // parent refetches from the backend
       // Clear before closing so the next Add opens blank even if the modal is
       // reopened with identical props (the open-effect also resets, this makes
@@ -374,7 +425,10 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
       onClose();
     } catch (err) {
       setTestStatus("disconnected");
-      setTestResult({ reachable: false, message: err.message || "Failed to add device" });
+      setTestResult({
+        reachable: false,
+        message: err.message || "Failed to add device",
+      });
       alert("Failed to add device: " + (err.message || "Unknown error"));
     } finally {
       setIsSubmitting(false);
@@ -387,7 +441,10 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     setTestResult(null);
     try {
       // Preview (dry run) discovery: preview=true, method=ONVIF, rewrite_rtsp_port=true.
-      const res = await nvrService.discoverForConnection(buildNvrBody(), discoveryOpts(true));
+      const res = await nvrService.discoverForConnection(
+        buildNvrBody(),
+        discoveryOpts(true),
+      );
       const found =
         res?.channels_probed ?? res?.registered ?? (res?.cameras?.length || 0);
       setTestResult({
@@ -452,7 +509,10 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     // Also update the selected department in localStorage
     const updatedDept = updated.find((d) => d.id === selectedDept.id);
     if (updatedDept) {
-      localStorage.setItem("vms_settings_selected_dept", JSON.stringify(updatedDept));
+      localStorage.setItem(
+        "vms_settings_selected_dept",
+        JSON.stringify(updatedDept),
+      );
     }
     setDepartments(updated);
     setForm((prev) => ({ ...prev, subGroup: created.name }));
@@ -473,7 +533,7 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
     "text-[11px] font-semibold text-[var(--text-dark)] w-24 shrink-0 text-left";
   const fieldClass = "flex-1";
 
-  return createPortal(
+  const modal = createPortal(
     <AnimatePresence>
       {isOpen && (
         <motion.div
@@ -495,12 +555,12 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
             <div className="flex justify-between place-items-start px-6 py-3 border-b border-[var(--border-color)]">
               <div>
                 <h2 className="text-sm font-bold tracking-tight text-[var(--text-dark)]">
-                  {isEditMode
-                    ? `Edit Device — ${selectedDept?.name || "Device"}`
-                    : `Add Device — ${selectedDept?.name || "Device"}`}
+                  {isEditMode ? `Edit Device` : `Add Device`}
                 </h2>
                 <p className="text-[var(--text-muted)] text-[10px] mt-0.5">
-                  {isEditMode ? "Update device configuration" : "Configure device and network parameters"}
+                  {isEditMode
+                    ? "Update device configuration"
+                    : "Configure device and network parameters"}
                 </p>
               </div>
               <button
@@ -530,105 +590,46 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                   </div>
                 </div>
 
-                {/* Row 2: Group + Site (two fields) */}
+                {/* Row 2: Brand */}
                 <div className={rowClass}>
-                    <label className={labelClass}>
-                      {selectedDept?.groupName || "Group"}
-                    </label>
-                    <div className="flex gap-2 flex-1">
-                      <div className={selectWrapperClass}>
-                        <select
-                          name="group"
-                          value={form.group}
-                          onChange={handleChange}
-                          className={selectClass}
+                  <label className={labelClass}>Brand</label>
+                  <div className={fieldClass}>
+                    <div className={selectWrapperClass} ref={brandRef}>
+                      <button
+                        type="button"
+                        ref={brandBtnRef}
+                        onClick={() => {
+                          if (!brandOpen && brandBtnRef.current) {
+                            const rect =
+                              brandBtnRef.current.getBoundingClientRect();
+                            setBrandDropdownPos({
+                              top: rect.bottom + 4,
+                              left: rect.left,
+                              width: rect.width,
+                            });
+                          }
+                          setBrandOpen(!brandOpen);
+                        }}
+                        className={`${selectClass} text-left flex items-center justify-between`}
+                      >
+                        <span
+                          className={
+                            !form.brand ? "text-[var(--text-muted)]" : ""
+                          }
                         >
-                          <option value="">
-                            Select {selectedDept?.groupName || "Group"}...
-                          </option>
-                          {groups.map((item) => (
-                            <option key={item.id} value={item.name}>
-                              {item.name}
-                            </option>
-                          ))}
-                        </select>
-                        <IoChevronDown size={14} className={selectIconClass} />
-                      </div>
-                      {form.group && (
-                        <>
-                          {isAddingSite ? (
-                            <div className="flex gap-1 flex-1">
-                              <input
-                                type="text"
-                                value={newSiteName}
-                                onChange={(e) => setNewSiteName(e.target.value)}
-                                placeholder="Type site name..."
-                                className={`${inputClass} flex-1 text-xs`}
-                                autoFocus
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter" && newSiteName.trim()) {
-                                    handleAddNewSite();
-                                  } else if (e.key === "Escape") {
-                                    setIsAddingSite(false);
-                                    setNewSiteName("");
-                                  }
-                                }}
-                              />
-                              <button
-                                type="button"
-                                onClick={handleAddNewSite}
-                                className="px-2.5 py-1.5 bg-emerald-500 text-white rounded-lg text-xs font-bold hover:opacity-90"
-                              >
-                                Add
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  setIsAddingSite(false);
-                                  setNewSiteName("");
-                                }}
-                                className="px-2 py-1.5 border border-gray-300 rounded-lg text-xs text-[var(--text-muted)] hover:bg-[var(--hover-bg)]"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <div className={selectWrapperClass}>
-                              <select
-                                name="subGroup"
-                                value={form.subGroup}
-                                onChange={(e) => {
-                                  if (e.target.value === "__add_new__") {
-                                    setIsAddingSite(true);
-                                  } else {
-                                    handleChange(e);
-                                  }
-                                }}
-                                className={selectClass}
-                              >
-                                <option value="">Select Site...</option>
-                                {subGroups.map((sg) => (
-                                  <option key={sg.id} value={sg.name}>
-                                    {sg.name}
-                                  </option>
-                                ))}
-                                <option
-                                  value="__add_new__"
-                                  className="font-bold text-emerald-600"
-                                >
-                                  + Add New
-                                </option>
-                              </select>
-                              <IoChevronDown
-                                size={14}
-                                className={selectIconClass}
-                              />
-                            </div>
-                          )}
-                        </>
-                      )}
+                          {form.brand
+                            ? brandOptions.find((b) => b.value === form.brand)
+                                ?.label
+                            : "Select Brand..."}
+                        </span>
+                        <IoChevronDown
+                          size={14}
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] opacity-70"
+                        />
+                      </button>
                     </div>
                   </div>
+                </div>
 
                 {/* Row 3: Device Type + Connection (two fields) */}
                 <div className={rowClass}>
@@ -649,6 +650,7 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                       </select>
                       <IoChevronDown size={14} className={selectIconClass} />
                     </div>
+
                     <div className={selectWrapperClass}>
                       <select
                         name="connectionType"
@@ -670,7 +672,7 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                 {form.connectionType === "ONVIF" && (
                   <div className={rowClass}>
                     <label className={labelClass}>Network</label>
-                    <div className="flex-1 grid grid-cols-[1fr_56px_56px] gap-2 items-center">
+                    <div className="flex-1 grid grid-cols-[1fr_70px_70px] gap-2 items-center">
                       <input
                         name="ip"
                         value={form.ip}
@@ -726,47 +728,6 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                 {testStatus === "disconnected" && (
                   <>
                     <div className={rowClass}>
-                      <label className={labelClass}>Brand</label>
-                      <div className={fieldClass}>
-                        <div className={selectWrapperClass} ref={brandRef}>
-                          <button
-                            type="button"
-                            onClick={() => setBrandOpen(!brandOpen)}
-                            className={`${selectClass} text-left flex items-center justify-between`}
-                          >
-                            <span>
-                              {form.brand
-                                ? brandOptions.find((b) => b.value === form.brand)?.label
-                                : "Select Brand..."}
-                            </span>
-                            <IoChevronDown size={14} className="shrink-0 ml-1 opacity-70" />
-                          </button>
-                          {brandOpen && (
-                            <div className="vms-dropdown absolute z-50 mt-1 w-full max-h-[180px] overflow-y-auto">
-                              {brandOptions.map((brand) => (
-                                <button
-                                  key={brand.value}
-                                  type="button"
-                                  onClick={() => {
-                                    setForm({ ...form, brand: brand.value });
-                                    setBrandOpen(false);
-                                  }}
-                                  className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--primary-color)]/10 hover:text-[var(--primary-color)] transition-colors ${
-                                    form.brand === brand.value
-                                      ? "bg-[var(--primary-color)]/10 text-[var(--primary-color)] font-semibold"
-                                      : "text-[var(--text-dark)]"
-                                  }`}
-                                >
-                                  {brand.label}
-                                </button>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className={rowClass}>
                       <label className={labelClass}>Channels</label>
                       <div className={fieldClass}>
                         <input
@@ -780,8 +741,8 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                           className={inputClass}
                         />
                         <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                          ONVIF didn’t answer. Give the device’s brand and channel
-                          count so it can be scanned over RTSP instead.
+                          ONVIF didn’t answer. Give the device’s brand and
+                          channel count so it can be scanned over RTSP instead.
                         </p>
                       </div>
                     </div>
@@ -934,7 +895,9 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                     <IoClose size={13} />
                   </button>
                   <div className="font-semibold mb-0.5 pr-5">
-                    {testResult.reachable ? "Device Reachable" : "Device Unreachable"}
+                    {testResult.reachable
+                      ? "Device Reachable"
+                      : "Device Unreachable"}
                   </div>
                   <div className="text-[10px] opacity-80 max-h-[72px] overflow-y-auto pr-1">
                     {testResult.message}
@@ -972,29 +935,33 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
                 {form.connectionType === "RTSP" ? (
                   <span />
                 ) : (
-                <button
-                  type="button"
-                  onClick={handleTestConnection}
-                  disabled={!form.ip || busy || isEditMode}
-                  className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 ${
-                    testStatus === "connected"
-                      ? "bg-emerald-500 text-white hover:opacity-90"
-                      : testStatus === "disconnected"
-                        ? "bg-red-500 text-white hover:opacity-90"
-                        : testStatus === "testing"
-                          ? "bg-yellow-500 text-white cursor-wait animate-pulse"
-                          : "bg-emerald-500 text-white hover:opacity-90"
-                  } disabled:opacity-50 disabled:cursor-not-allowed`}
-                >
-                  {testStatus === "testing" ? <Spinner size={11} /> : <FiZap size={11} />}
-                  {testStatus === "testing"
-                    ? "Testing..."
-                    : testStatus === "connected"
-                      ? "Connected"
-                      : testStatus === "disconnected"
-                        ? "Failed"
-                        : "Test"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleTestConnection}
+                    disabled={!form.ip || busy || isEditMode}
+                    className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 ${
+                      testStatus === "connected"
+                        ? "bg-emerald-500 text-white hover:opacity-90"
+                        : testStatus === "disconnected"
+                          ? "bg-red-500 text-white hover:opacity-90"
+                          : testStatus === "testing"
+                            ? "bg-yellow-500 text-white cursor-wait animate-pulse"
+                            : "bg-emerald-500 text-white hover:opacity-90"
+                    } disabled:opacity-50 disabled:cursor-not-allowed`}
+                  >
+                    {testStatus === "testing" ? (
+                      <Spinner size={11} />
+                    ) : (
+                      <FiZap size={11} />
+                    )}
+                    {testStatus === "testing"
+                      ? "Testing..."
+                      : testStatus === "connected"
+                        ? "Connected"
+                        : testStatus === "disconnected"
+                          ? "Failed"
+                          : "Test"}
+                  </button>
                 )}
 
                 <div className="flex gap-2">
@@ -1031,6 +998,61 @@ function AddCameraModal({ isOpen, onClose, onSave, editingCamera, currentDepartm
       )}
     </AnimatePresence>,
     document.body,
+  );
+
+  const brandDropdown = brandOpen
+    ? createPortal(
+        <div
+          ref={brandRef}
+          className="fixed z-[10000] bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg shadow-lg overflow-y-auto"
+          style={{
+            top: brandDropdownPos.top,
+            left: brandDropdownPos.left,
+            width: brandDropdownPos.width,
+            maxHeight: "200px",
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setForm((prev) => ({ ...prev, brand: "" }));
+              setBrandOpen(false);
+            }}
+            className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--primary-color)]/10 hover:text-[var(--primary-color)] transition-colors ${
+              !form.brand
+                ? "bg-[var(--primary-color)]/10 text-[var(--primary-color)] font-semibold"
+                : "text-[var(--text-muted)]"
+            }`}
+          >
+            Select Brand...
+          </button>
+          {brandOptions.map((brand) => (
+            <button
+              key={brand.value}
+              type="button"
+              onClick={() => {
+                setForm((prev) => ({ ...prev, brand: brand.value }));
+                setBrandOpen(false);
+              }}
+              className={`w-full text-left px-3 py-2 text-[13px] hover:bg-[var(--primary-color)]/10 hover:text-[var(--primary-color)] transition-colors ${
+                form.brand === brand.value
+                  ? "bg-[var(--primary-color)]/10 text-[var(--primary-color)] font-semibold"
+                  : "text-[var(--text-dark)]"
+              }`}
+            >
+              {brand.label}
+            </button>
+          ))}
+        </div>,
+        document.body,
+      )
+    : null;
+
+  return (
+    <>
+      {modal}
+      {brandDropdown}
+    </>
   );
 }
 

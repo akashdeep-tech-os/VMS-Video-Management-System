@@ -442,18 +442,12 @@ function HeaderSettings({ department, onUpdateDepartment, onBack }) {
       {/* Header */}
       <BodyHead>
         <div className="flex items-center gap-2 min-w-[280px]">
-          <button
-            onClick={onBack}
-            className="p-1.5 rounded-lg hover:bg-[var(--hover-bg)] text-[var(--text-muted)] hover:text-[var(--text-dark)] transition-colors"
-          >
-            <FaArrowLeft size={14} />
-          </button>
           <div className=" flex-shrink-0">
             <FaHeading className="text-[var(--primary-color)] text-[20px]" />
           </div>
           <div className="leading-tight">
             <h2 className="text-xs md:text-[18px] font-bold tracking-tight text-[var(--text-dark)] leading-none">
-              Header Settings — {department?.name || "this department"}
+              Header Settings
             </h2>
           </div>
         </div>

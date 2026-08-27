@@ -3,12 +3,21 @@ import logging
 import time
 
 from fastapi import APIRouter, Depends
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.camera import Camera
-from app.schemas.dashboard import DashboardStats
+from app.schemas.dashboard import (
+    DashboardCameras,
+    DashboardOffline,
+    DashboardOnline,
+    DashboardStats,
+    DashboardSummary,
+    DashboardUsers,
+    DashboardAlerts,
+    StationCameraStats,
+)
 from app.services import mediamtx
 from app.services.status import status_service
 
@@ -65,3 +74,56 @@ async def dashboard_stats(db: Session = Depends(get_db)) -> DashboardStats:
         cpu=cpu,
         memory=memory,
     )
+
+
+@router.get("/summary", response_model=DashboardSummary)
+async def dashboard_summary(db: Session = Depends(get_db)) -> DashboardSummary:
+    cameras = list(db.scalars(select(Camera)).all())
+    statuses = await status_service.statuses(cameras)
+
+    total_cameras = len(cameras)
+    disabled = sum(1 for s in statuses if s.state == "disabled")
+    enabled = total_cameras - disabled
+    online = sum(1 for s in statuses if s.state == "online")
+    offline_count = enabled - online
+
+    stations_q = db.execute(select(func.count(func.distinct(Camera.manufacturer))))
+    unique_stations = stations_q.scalar() or 0
+    if unique_stations == 0:
+        unique_stations = 1
+
+    uptime_pct = round((online / enabled * 100), 1) if enabled > 0 else 0.0
+
+    return DashboardSummary(
+        users=DashboardUsers(total=0, active=0),
+        cameras=DashboardCameras(total=total_cameras, stations=unique_stations),
+        online=DashboardOnline(count=online, uptime_pct=uptime_pct),
+        offline=DashboardOffline(count=offline_count),
+        alerts=DashboardAlerts(total=0, critical=0),
+    )
+
+
+@router.get("/camera-stats", response_model=list[StationCameraStats])
+async def dashboard_camera_stats(db: Session = Depends(get_db)) -> list[StationCameraStats]:
+    cameras = list(db.scalars(select(Camera)).all())
+    statuses = await status_service.statuses(cameras)
+
+    status_map = {s.camera_id: s for s in statuses}
+
+    station_groups: dict[str, list[Camera]] = {}
+    for cam in cameras:
+        station = cam.manufacturer or "Unknown"
+        station_groups.setdefault(station, []).append(cam)
+
+    result = []
+    for station_name, station_cameras in station_groups.items():
+        total = len(station_cameras)
+        working = sum(1 for c in station_cameras if status_map.get(c.id, None) and status_map[c.id].state == "online")
+        result.append(StationCameraStats(
+            station_name=station_name,
+            total=total,
+            working=working,
+            non_working=total - working,
+        ))
+
+    return sorted(result, key=lambda s: s.total, reverse=True)

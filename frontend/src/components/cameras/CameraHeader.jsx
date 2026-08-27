@@ -25,17 +25,11 @@ function CameraHeader({
     <>
       {/* LEFT: Title */}
       <div className="flex items-center gap-2 shrink-0">
-        <button
-          onClick={onBack}
-          className="p-1.5 rounded-lg hover:bg-[var(--hover-bg)] text-[var(--text-muted)] hover:text-[var(--text-dark)] transition-colors"
-        >
-          <FaArrowLeft size={14} />
-        </button>
         <div className=" flex-shrink-0">
           <FaCamera className="text-[var(--primary-color)] text-[22px]" />
         </div>
         <h2 className="text-xs md:text-[18px] font-bold tracking-tight text-[var(--text-dark)] leading-none whitespace-nowrap">
-          Device Management — {departmentName}
+          Device Management
         </h2>
         <span className="text-[13px] bg-[var(--primary-color)]/10 text-[var(--primary-color)] px-2 py-0.5 rounded-full font-bold">
           {cameraCount}

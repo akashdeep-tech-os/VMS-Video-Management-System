@@ -55,18 +55,12 @@ const ThemeSettings = ({ department, onUpdateDepartment, onBack }) => {
     <div className="flex flex-col h-full overflow-hidden">
       <BodyHead>
         <div className="flex items-center gap-2 min-w-[280px]">
-          <button
-            onClick={onBack}
-            className="p-1.5 rounded-lg hover:bg-[var(--hover-bg)] text-[var(--text-muted)] hover:text-[var(--text-dark)] transition-colors"
-          >
-            <FaArrowLeft size={14} />
-          </button>
           <div className=" flex-shrink-0">
             <FaPalette className="text-[var(--primary-color)] text-[20px]" />
           </div>
           <div className="leading-tight">
             <h2 className="text-xs md:text-[18px] font-bold tracking-tight text-[var(--text-dark)] leading-none">
-              Theme — {department?.name || "this department"}
+              Theme
             </h2>
           </div>
         </div>

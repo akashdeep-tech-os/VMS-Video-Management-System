@@ -10,7 +10,7 @@
 // service (auth, users, cameras, dashboard, ...) is built on top of it.
 
 const API_BASE =
-  import.meta.env.VITE_API_BASE_URL || "http://localhost:8080/api/v1";
+  import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api/v1";
 
 const TOKEN_KEY = "vms_token";
 

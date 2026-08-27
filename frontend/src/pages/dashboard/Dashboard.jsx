@@ -117,7 +117,7 @@ const Dashboard = () => {
   const [health, setHealth] = useState(null);
   const [stationStats, setStationStats] = useState([]);
 
-  // Pull live KPI summary + host health from the backend.
+  // Pull live KPI summary from the backend (once on mount).
   useEffect(() => {
     let cancelled = false;
 
@@ -136,15 +136,31 @@ const Dashboard = () => {
       })
       .catch((err) => console.error("Dashboard camera-stats failed", err));
 
-    systemService
-      .getHealth()
-      .then((h) => {
-        if (!cancelled) setHealth(h);
-      })
-      .catch((err) => console.error("System health failed", err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Poll system health every 5 seconds for real-time bottom stats.
+  useEffect(() => {
+    let cancelled = false;
+    let timer;
+
+    function fetchHealth() {
+      systemService
+        .getHealth()
+        .then((h) => {
+          if (!cancelled) setHealth(h);
+        })
+        .catch((err) => console.error("System health failed", err));
+    }
+
+    fetchHealth();
+    timer = setInterval(fetchHealth, 5000);
 
     return () => {
       cancelled = true;
+      clearInterval(timer);
     };
   }, []);
 

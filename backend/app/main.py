@@ -4,7 +4,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.routes import cameras, dashboard, health
+from app.api.routes import cameras, dashboard, health, system
 from app.core.config import settings
 from app.core.logging import setup_logging
 from app.services import mediamtx
@@ -40,6 +40,7 @@ app.add_middleware(
 app.include_router(health.router, prefix="/api/v1")
 app.include_router(cameras.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
+app.include_router(system.router, prefix="/api/v1")
 
 
 @app.get("/")
