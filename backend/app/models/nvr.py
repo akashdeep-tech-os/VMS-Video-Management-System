@@ -23,6 +23,9 @@ class NVR(Base):
     firmware: Mapped[str | None] = mapped_column(String(255), nullable=True)
     serial: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
+    no_of_channels: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    brand_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
     enabled: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.models.camera import Camera
-from app.schemas.camera import CameraCreate, CameraRead, CameraStatus, CameraUpdate
+from app.schemas.camera import CameraCreate, CameraCreateRtsp, CameraRead, CameraStatus, CameraUpdate
 from app.services import mediamtx
 from app.services.onvif import FAIL_MESSAGES, build_rtsp_url, probe_camera
 from app.services.status import status_service
@@ -169,6 +169,47 @@ async def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) ->
         site_name=payload.site_name,
     )
     _apply_probe(camera, probe)
+    db.add(camera)
+    db.commit()
+    db.refresh(camera)
+
+    await _register_path(camera)
+    db.commit()
+    db.refresh(camera)
+    return camera
+
+
+@router.post("/rtsp", response_model=CameraRead, status_code=201)
+async def create_camera_rtsp(payload: CameraCreateRtsp, db: Session = Depends(get_db)) -> Camera:
+    """Register a camera directly from an RTSP URL (no ONVIF probe needed)."""
+    from urllib.parse import urlparse
+
+    parsed = urlparse(payload.rtsp_url)
+    host = parsed.hostname or ""
+    port = parsed.port or 554
+    path = parsed.path + (f"?{parsed.query}" if parsed.query else "")
+    username = parsed.username or ""
+    password = parsed.password or ""
+
+    if not host:
+        raise _validate_failed("Invalid RTSP URL: no hostname found")
+
+    camera = Camera(
+        name=payload.name,
+        ip_address=host,
+        onvif_port=80,
+        rtsp_port=port,
+        username=username,
+        password=password,
+        latitude=payload.latitude,
+        longitude=payload.longitude,
+        station_id=payload.station_id,
+        station_name=payload.station_name,
+        site_id=payload.site_id,
+        site_name=payload.site_name,
+        rtsp_path=path,
+        rtsp_source="rtsp_url",
+    )
     db.add(camera)
     db.commit()
     db.refresh(camera)

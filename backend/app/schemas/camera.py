@@ -24,6 +24,19 @@ class CameraCreate(CameraBase):
     site_name: str | None = None
 
 
+class CameraCreateRtsp(BaseModel):
+    """Create a camera directly from an RTSP URL (no ONVIF probe)."""
+
+    name: str = Field(min_length=1, max_length=120)
+    rtsp_url: str = Field(min_length=1, max_length=500)
+    latitude: float | None = None
+    longitude: float | None = None
+    station_id: int | None = None
+    station_name: str | None = None
+    site_id: int | None = None
+    site_name: str | None = None
+
+
 class CameraUpdate(BaseModel):
     """All fields optional; only provided fields are applied.
 

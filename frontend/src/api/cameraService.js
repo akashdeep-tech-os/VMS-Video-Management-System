@@ -24,6 +24,11 @@ const cameraService = {
     return apiClient.post("/cameras", payload);
   },
 
+  // Register a camera directly from an RTSP URL (no ONVIF probe).
+  createRtsp(payload) {
+    return apiClient.post("/cameras/rtsp", payload);
+  },
+
   // One-call ONVIF registration (standalone camera).
   createOnvif(payload) {
     return apiClient.post("/cameras/onvif", payload);

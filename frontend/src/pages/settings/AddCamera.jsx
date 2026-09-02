@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useOutletContext } from "react-router-dom";
 import CameraTable from "../../components/cameras/CameraTable";
 import CameraHeader from "../../components/cameras/CameraHeader";
@@ -13,11 +13,10 @@ function mapCamera(cam) {
   return {
     id: cam.id,
     name: cam.name,
-    ip: cam.camera_ip || cam.nvr_ip || cam.ip_address || "—",
-    location: cam.station_name || cam.zone || cam.nvr_name || "—",
-    group: cam.station_name || cam.zone || cam.nvr_name || "Ungrouped",
-    subGroup: cam.site_name || cam.nvr_name || "—",
-    // Table filters on "online"/"offline"; derive from health/active flags.
+    ip: cam.ip_address || "—",
+    location: cam.station_name || "—",
+    group: cam.station_name || "Ungrouped",
+    subGroup: cam.site_name || "—",
     status: cam.active === false ? "offline" : cam.healthy || cam.stream_state === "registered" ? "online" : "offline",
     cameraType: cam.camera_type || "—",
     visible: cam.active !== false,
@@ -36,78 +35,10 @@ function Addcamera({ onBack }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [editingCamera, setEditingCamera] = useState(null);
 
-  // Counter to force re-read from localStorage when data changes
-  const [deptVersion, setDeptVersion] = useState(() =>
-    localStorage.getItem("vms_departments_version") || "0"
-  );
-
   const { setIsPageBlurred } = useOutletContext() || {};
-
-  // The Live Monitoring / Playback sidebars are fed by a provider that wraps
-  // the whole app and loads its tree once. Registering or deleting devices
-  // here must tell it to re-pull, or those tabs stay stale until a reload.
   const { refreshCameras } = useLiveStreaming();
 
-  // Re-read from localStorage whenever deptVersion changes
-  const departments = useMemo(() => {
-    const saved = localStorage.getItem("vms_departments");
-    return saved ? JSON.parse(saved) : [];
-  }, [deptVersion]);
-
-  const currentDepartment = useMemo(() => {
-    const saved = localStorage.getItem("vms_settings_selected_dept");
-    if (!saved) return null;
-    try {
-      return JSON.parse(saved);
-    } catch {
-      return null;
-    }
-  }, [deptVersion]);
-
-  // Get the latest department data (with fresh groups) from departments array
-  const activeDepartment = useMemo(() => {
-    if (!currentDepartment) return null;
-    return departments.find((d) => d.id === currentDepartment.id) || currentDepartment;
-  }, [departments, currentDepartment]);
-
-  const groups = useMemo(() => {
-    if (activeDepartment) {
-      return activeDepartment.groups || [];
-    }
-    const allGroups = [...new Set(cameras.map((cam) => cam.group).filter(Boolean))];
-    return allGroups;
-  }, [activeDepartment, cameras]);
-
-  // Listen for localStorage changes from other components
-  useEffect(() => {
-    const handleStorageChange = (e) => {
-      if (e.key === "vms_departments" || e.key === "vms_settings_selected_dept") {
-        setDeptVersion(String(Date.now()));
-      }
-    };
-
-    // Also poll for changes (for same-tab updates)
-    const interval = setInterval(() => {
-      const current = localStorage.getItem("vms_departments_version") || "0";
-      setDeptVersion((prev) => {
-        if (prev !== current) return current;
-        return prev;
-      });
-    }, 500);
-
-    window.addEventListener("storage", handleStorageChange);
-    return () => {
-      window.removeEventListener("storage", handleStorageChange);
-      clearInterval(interval);
-    };
-  }, []);
-
-  useEffect(() => {
-    if (setIsPageBlurred) {
-      setIsPageBlurred(showModal);
-    }
-    return () => setIsPageBlurred?.(false);
-  }, [showModal, setIsPageBlurred]);
+  const groups = [...new Set(cameras.map((cam) => cam.group).filter(Boolean))];
 
   const loadCameras = useCallback(async () => {
     setIsRefreshing(true);
@@ -127,8 +58,14 @@ function Addcamera({ onBack }) {
     loadCameras();
   }, [loadCameras]);
 
+  useEffect(() => {
+    if (setIsPageBlurred) {
+      setIsPageBlurred(showModal);
+    }
+    return () => setIsPageBlurred?.(false);
+  }, [showModal, setIsPageBlurred]);
+
   const handleRefresh = () => {
-    setDeptVersion(String(Date.now()));
     loadCameras();
   };
 
@@ -177,14 +114,11 @@ function Addcamera({ onBack }) {
   };
 
   const handleAddCamera = (newCamera) => {
-    // Backend adds (NVR discovery / ONVIF) call onSave() with no arg — just
-    // refetch the real list. A passed object (legacy/local) is prepended.
     if (newCamera) {
       setCameras((prev) => [newCamera, ...prev]);
     } else {
       loadCameras();
     }
-    // Discovery can register many channels at once — pull the sidebar tree too.
     refreshCameras?.();
   };
 
@@ -236,8 +170,6 @@ function Addcamera({ onBack }) {
           onAddClick={() => setShowModal(true)}
           onRefresh={handleRefresh}
           isRefreshing={isRefreshing}
-          departmentName={activeDepartment?.name || ""}
-          groupLabel={activeDepartment?.groupName || "Group"}
           onBack={onBack}
           cameraCount={cameras.length}
         />
@@ -275,7 +207,6 @@ function Addcamera({ onBack }) {
         onClose={closeModal}
         onSave={editingCamera ? handleEditCamera : handleAddCamera}
         editingCamera={editingCamera}
-        currentDepartment={activeDepartment}
       />
     </div>
   );

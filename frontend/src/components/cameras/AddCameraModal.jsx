@@ -460,7 +460,9 @@ function AddCameraModal({
           discoveryOpts(true),
         );
         const found =
-          res?.channels_probed ?? res?.registered ?? (res?.cameras?.length || 0);
+          res?.channels_probed ??
+          res?.registered ??
+          (res?.cameras?.length || 0);
         setTestResult({
           reachable: true,
           protocol: res?.method,
@@ -483,7 +485,8 @@ function AddCameraModal({
         setTestResult({
           reachable: true,
           protocol: "ONVIF",
-          message: "Camera reachable and validated. Click Add Device to register.",
+          message:
+            "Camera reachable and validated. Click Add Device to register.",
         });
       }
       setTestStatus("connected");
@@ -524,20 +527,7 @@ function AddCameraModal({
 
     // Add it to the fetched list too, so the dropdown shows it right away
     // without a refetch (the localStorage mirror below is the fallback path).
-    setSitesByStation((prev) => ({
-      ...prev,
-      [groupObj.id]: [...(prev[groupObj.id] || []), newSubGroup],
-    }));
-    const updated = departments.map((d) => {
-      if (d.id !== selectedDept.id) return d;
-      return {
-        ...d,
-        groups: (d.groups || []).map((g) => {
-          if (g.id !== groupObj.id) return g;
-          return { ...g, subGroups: [...(g.subGroups || []), newSubGroup] };
-        }),
-      };
-    });
+
     localStorage.setItem("vms_departments", JSON.stringify(updated));
     localStorage.setItem("vms_departments_version", String(Date.now()));
     // Also update the selected department in localStorage

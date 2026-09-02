@@ -12,7 +12,10 @@ class NVRBase(BaseModel):
 
 
 class NVRCreate(NVRBase):
-    pass
+    no_of_channels: int | None = None
+    brand_name: str | None = None
+    model_number: str | None = None
+    manufacturer: str | None = None
 
 
 class NVRUpdate(BaseModel):
@@ -22,6 +25,9 @@ class NVRUpdate(BaseModel):
     username: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, max_length=255)
     enabled: bool | None = None
+    no_of_channels: int | None = None
+    brand_name: str | None = None
+    model_number: str | None = None
 
 
 class NVRRead(NVRBase):
@@ -33,5 +39,21 @@ class NVRRead(NVRBase):
     firmware: str | None = None
     serial: str | None = None
     enabled: bool = True
+    no_of_channels: int | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class NVRDiscoverRequest(BaseModel):
+    """Body for the ID-less discover endpoint."""
+
+    brand_name: str | None = None
+    ip_address: str
+    rtsp_port: int | None = None
+    onvif_port: int | None = None
+    username: str | None = None
+    plain_password: str | None = None
+    no_of_channels: int | None = None
+    department_id: int | None = None
+    station_id: int | None = None
+    site_id: int | None = None
