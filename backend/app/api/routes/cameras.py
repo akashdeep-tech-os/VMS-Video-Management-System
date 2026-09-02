@@ -9,7 +9,7 @@ from app.core.database import get_db
 from app.models.camera import Camera
 from app.schemas.camera import CameraCreate, CameraCreateRtsp, CameraRead, CameraStatus, CameraUpdate
 from app.services import mediamtx
-from app.services.onvif import FAIL_MESSAGES, build_rtsp_url, probe_camera
+from app.services.onvif import build_rtsp_url
 from app.services.status import status_service
 
 logger = logging.getLogger(__name__)
@@ -49,19 +49,6 @@ async def _register_path(camera: Camera) -> None:
     source = build_rtsp_url(camera.ip_address, camera.rtsp_port, camera.rtsp_path, camera.username, camera.password)
     ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(camera.id), source)
     camera.stream_state = "registered" if ok else "error"
-
-
-def _validate_failed(detail: str) -> HTTPException:
-    return HTTPException(status_code=422, detail=detail)
-
-
-def _apply_probe(camera: Camera, probe) -> None:
-    camera.manufacturer = probe.manufacturer
-    camera.model = probe.model
-    camera.firmware = probe.firmware
-    camera.serial = probe.serial
-    camera.rtsp_path = probe.rtsp_path
-    camera.rtsp_source = probe.rtsp_source
 
 
 @router.get("", response_model=list[CameraRead])
@@ -149,11 +136,6 @@ def camera_tree(db: Session = Depends(get_db)) -> CameraTreeResponse:
 
 @router.post("", response_model=CameraRead, status_code=201)
 async def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) -> Camera:
-    probe = await probe_camera(payload.ip_address, payload.onvif_port, payload.rtsp_port, payload.username, payload.password)
-    if not probe.ok:
-        logger.info("Camera add rejected (%s): %s", probe.fail_reason, payload.ip_address)
-        raise _validate_failed(FAIL_MESSAGES.get(probe.fail_reason or "error", "Camera validation failed"))
-
     camera = Camera(
         name=payload.name,
         ip_address=payload.ip_address,
@@ -168,7 +150,6 @@ async def create_camera(payload: CameraCreate, db: Session = Depends(get_db)) ->
         site_id=payload.site_id,
         site_name=payload.site_name,
     )
-    _apply_probe(camera, probe)
     db.add(camera)
     db.commit()
     db.refresh(camera)
@@ -250,21 +231,6 @@ async def update_camera(camera_id: int, payload: CameraUpdate, db: Session = Dep
 
     was_enabled = camera.enabled
     connection_changed = bool(CONNECTION_FIELDS.intersection(changes))
-
-    if connection_changed:
-        username = changes.get("username", camera.username)
-        password = changes.get("password", camera.password)
-        probe = await probe_camera(
-            changes.get("ip_address", camera.ip_address),
-            changes.get("onvif_port", camera.onvif_port),
-            changes.get("rtsp_port", camera.rtsp_port),
-            username,
-            password,
-        )
-        if not probe.ok:
-            logger.info("Camera update rejected (%s): %s", probe.fail_reason, camera.ip_address)
-            raise _validate_failed(FAIL_MESSAGES.get(probe.fail_reason or "error", "Camera validation failed"))
-        _apply_probe(camera, probe)
 
     for field, value in changes.items():
         setattr(camera, field, value)

@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, Integer, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -10,11 +10,15 @@ class NVR(Base):
     """Network Video Recorder that groups multiple camera channels."""
 
     __tablename__ = "nvrs"
+    __table_args__ = (
+        UniqueConstraint("ip_address", "port", "rtsp_port", name="uq_nvr_address_port"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
     ip_address: Mapped[str] = mapped_column(String(45), nullable=False)
     port: Mapped[int] = mapped_column(Integer, nullable=False, default=80, server_default="80")
+    rtsp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=554, server_default="554")
     username: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
     password: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
 

@@ -10,11 +10,27 @@ from app.models.camera import Camera
 from app.models.nvr import NVR
 from app.schemas.nvr import NVRCreate, NVRDiscoverRequest, NVRRead, NVRUpdate
 from app.services import mediamtx
-from app.services.onvif import build_rtsp_url, probe_camera
+from app.services.onvif import build_rtsp_url
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nvrs", tags=["nvrs"])
+
+# Brand-to-RTSP-path mapping for channel registration without probing
+BRAND_RTSP_PATHS = {
+    "cpplus": "/cam/realmonitor?channel={ch}&subtype=0",
+    "dahua": "/cam/realmonitor?channel={ch}&subtype=0",
+    "hikvision": "/Streaming/Channels/{ch}01",
+    "axis": "/axis-media/media.axs",
+    "default": "/stream1",
+}
+
+
+def _get_rtsp_path(brand: str | None, channel: int) -> str:
+    """Get the RTSP path for a given brand and channel number."""
+    brand_key = (brand or "").lower().replace(" ", "")
+    path_template = BRAND_RTSP_PATHS.get(brand_key, BRAND_RTSP_PATHS["default"])
+    return path_template.format(ch=channel)
 
 
 class DiscoverResponse(BaseModel):
@@ -39,6 +55,7 @@ def create_nvr(payload: NVRCreate, db: Session = Depends(get_db)) -> NVR:
         name=payload.name,
         ip_address=payload.ip_address,
         port=payload.port,
+        rtsp_port=payload.rtsp_port,
         username=payload.username,
         password=payload.password,
         no_of_channels=payload.no_of_channels,
@@ -67,9 +84,9 @@ async def discover_cameras_id_less(
     brand: str = Query(None),
     db: Session = Depends(get_db),
 ) -> DiscoverResponse:
-    """ID-less discovery: register-or-find the NVR, then discover channels.
+    """ID-less discovery: register-or-find the NVR, then register channels.
 
-    If preview=True, probe only and return results without persisting.
+    Channels are registered directly based on no_of_channels without probing.
     """
     ip = nvr_body.ip_address
     onvif_port = nvr_body.onvif_port or 80
@@ -77,14 +94,21 @@ async def discover_cameras_id_less(
     username = nvr_body.username or ""
     password = nvr_body.plain_password or ""
 
-    # Find or create the NVR
-    nvr = db.scalars(select(NVR).where(NVR.ip_address == ip)).first()
+    # Find or create the NVR (unique per IP + HTTP port + RTSP port)
+    nvr = db.scalars(
+        select(NVR).where(
+            NVR.ip_address == ip,
+            NVR.port == onvif_port,
+            NVR.rtsp_port == rtsp_port,
+        )
+    ).first()
 
     if nvr is None:
         nvr = NVR(
             name=nvr_body.brand_name or "NVR",
             ip_address=ip,
             port=onvif_port,
+            rtsp_port=rtsp_port,
             username=username,
             password=password,
             no_of_channels=nvr_body.no_of_channels,
@@ -95,48 +119,44 @@ async def discover_cameras_id_less(
     else:
         nvr.username = username or nvr.username
         nvr.password = password or nvr.password
+        nvr.rtsp_port = rtsp_port
         if nvr_body.no_of_channels:
             nvr.no_of_channels = nvr_body.no_of_channels
         if nvr_body.brand_name:
             nvr.brand_name = nvr_body.brand_name
 
     if preview:
-        # Just probe one channel to verify connectivity
-        probe = await probe_camera(ip, onvif_port, rtsp_port, username, password)
+        # Preview mode: just return the NVR info without registering channels
         db.flush()
         return DiscoverResponse(
             nvr_id=nvr.id,
             method=method,
-            channels_probed=1 if probe.ok else 0,
+            channels_probed=0,
             cameras_registered=0,
             cameras=[],
         )
 
-    # Real discovery: probe up to max_channels
+    # Register channels directly based on no_of_channels
+    num_channels = nvr.no_of_channels or max_channels
     cameras_found = []
-    for ch in range(1, max_channels + 1):
-        probe = await probe_camera(ip, onvif_port, rtsp_port, username, password)
-        if not probe.ok:
-            logger.info("NVR ch%d probe failed: %s", ch, probe.fail_reason)
-            break
 
-        rtsp_url = build_rtsp_url(ip, rtsp_port, probe.rtsp_path, username, password)
+    for ch in range(1, num_channels + 1):
+        rtsp_path = _get_rtsp_path(brand or nvr_body.brand_name, ch)
+        rtsp_url = build_rtsp_url(ip, rtsp_port, rtsp_path, username, password)
 
         cam_name = f"{nvr.name} - CH{ch}"
         existing = db.scalars(
             select(Camera).where(
                 Camera.ip_address == ip,
+                Camera.onvif_port == onvif_port,
+                Camera.rtsp_port == rtsp_port,
                 Camera.name == cam_name,
             )
         ).first()
 
         if existing:
-            existing.rtsp_path = probe.rtsp_path
-            existing.rtsp_source = probe.rtsp_source
-            existing.manufacturer = probe.manufacturer
-            existing.model = probe.model
-            existing.firmware = probe.firmware
-            existing.serial = probe.serial
+            existing.rtsp_path = rtsp_path
+            existing.rtsp_source = "brand_convention"
             cam = existing
         else:
             cam = Camera(
@@ -146,12 +166,8 @@ async def discover_cameras_id_less(
                 rtsp_port=rtsp_port,
                 username=username,
                 password=password,
-                rtsp_path=probe.rtsp_path,
-                rtsp_source=probe.rtsp_source,
-                manufacturer=probe.manufacturer,
-                model=probe.model,
-                firmware=probe.firmware,
-                serial=probe.serial,
+                rtsp_path=rtsp_path,
+                rtsp_source="brand_convention",
                 station_id=station_id,
                 site_id=site_id,
                 station_name=zone,
@@ -174,7 +190,7 @@ async def discover_cameras_id_less(
     return DiscoverResponse(
         nvr_id=nvr.id,
         method=method,
-        channels_probed=min(max_channels, len(cameras_found) or max_channels),
+        channels_probed=num_channels,
         cameras_registered=len(cameras_found),
         cameras=cameras_found,
     )
@@ -215,9 +231,13 @@ def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
     nvr = db.get(NVR, nvr_id)
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
-    # Also delete cameras registered under this NVR's IP
+    # Also delete cameras registered under this NVR (matched by IP + ports)
     cameras = db.scalars(
-        select(Camera).where(Camera.ip_address == nvr.ip_address)
+        select(Camera).where(
+            Camera.ip_address == nvr.ip_address,
+            Camera.onvif_port == nvr.port,
+            Camera.rtsp_port == nvr.rtsp_port,
+        )
     ).all()
     for cam in cameras:
         db.delete(cam)
@@ -227,12 +247,16 @@ def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.get("/{nvr_id}/channels", response_model=list[dict])
 def list_nvr_channels(nvr_id: int, db: Session = Depends(get_db)) -> list[dict]:
-    """List cameras (channels) registered under this NVR's IP address."""
+    """List cameras (channels) registered under this NVR (matched by IP + ports)."""
     nvr = db.get(NVR, nvr_id)
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
     cameras = db.scalars(
-        select(Camera).where(Camera.ip_address == nvr.ip_address).order_by(Camera.name)
+        select(Camera).where(
+            Camera.ip_address == nvr.ip_address,
+            Camera.onvif_port == nvr.port,
+            Camera.rtsp_port == nvr.rtsp_port,
+        ).order_by(Camera.name)
     ).all()
     return [
         {
@@ -275,44 +299,42 @@ async def discover_nvr_cameras(
     start_channel: int = Query(1),
     zone: str = Query(None),
     brand: str = Query(None),
+    station_id: int = Query(None),
+    site_id: int = Query(None),
     db: Session = Depends(get_db),
 ) -> DiscoverResponse:
-    """Discover camera channels on an already-registered NVR."""
+    """Register camera channels on an already-registered NVR.
+
+    Channels are registered directly based on no_of_channels without probing.
+    """
     nvr = db.get(NVR, nvr_id)
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
 
     onvif_port = nvr.port or 80
-    rtsp_port = 554
+    rtsp_port = nvr.rtsp_port or 554
+    num_channels = nvr.no_of_channels or max_channels
     cameras_found = []
 
-    for ch in range(start_channel, start_channel + max_channels):
-        probe = await probe_camera(
-            nvr.ip_address, onvif_port, rtsp_port, nvr.username, nvr.password
-        )
-        if not probe.ok:
-            logger.info("NVR ch%d probe failed: %s", ch, probe.fail_reason)
-            break
-
+    for ch in range(start_channel, start_channel + num_channels):
+        rtsp_path = _get_rtsp_path(brand or nvr.brand_name, ch)
         rtsp_url = build_rtsp_url(
-            nvr.ip_address, rtsp_port, probe.rtsp_path, nvr.username, nvr.password
+            nvr.ip_address, rtsp_port, rtsp_path, nvr.username, nvr.password
         )
 
         cam_name = f"{nvr.name} - CH{ch}"
         existing = db.scalars(
             select(Camera).where(
                 Camera.ip_address == nvr.ip_address,
+                Camera.onvif_port == nvr.port,
+                Camera.rtsp_port == nvr.rtsp_port,
                 Camera.name == cam_name,
             )
         ).first()
 
         if existing:
-            existing.rtsp_path = probe.rtsp_path
-            existing.rtsp_source = probe.rtsp_source
-            existing.manufacturer = probe.manufacturer
-            existing.model = probe.model
-            existing.firmware = probe.firmware
-            existing.serial = probe.serial
+            existing.rtsp_path = rtsp_path
+            existing.rtsp_source = "brand_convention"
             cam = existing
         else:
             cam = Camera(
@@ -322,12 +344,11 @@ async def discover_nvr_cameras(
                 rtsp_port=rtsp_port,
                 username=nvr.username,
                 password=nvr.password,
-                rtsp_path=probe.rtsp_path,
-                rtsp_source=probe.rtsp_source,
-                manufacturer=probe.manufacturer,
-                model=probe.model,
-                firmware=probe.firmware,
-                serial=probe.serial,
+                rtsp_path=rtsp_path,
+                rtsp_source="brand_convention",
+                station_id=station_id,
+                site_id=site_id,
+                station_name=zone,
             )
             db.add(cam)
 
@@ -349,7 +370,7 @@ async def discover_nvr_cameras(
     return DiscoverResponse(
         nvr_id=nvr.id,
         method=method,
-        channels_probed=min(max_channels, len(cameras_found) or max_channels),
+        channels_probed=num_channels,
         cameras_registered=len(cameras_found),
         cameras=cameras_found,
     )

@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { IoEye, IoEyeOff } from "react-icons/io5";
 import { CiEdit } from "react-icons/ci";
 import { MdDelete } from "react-icons/md";
+import { FiServer } from "react-icons/fi";
 import StatusBadge from "../ui/StatusBadge";
 
 function CameraTable({
@@ -16,6 +17,8 @@ function CameraTable({
   toggleSelectAll,
   onRowDetailsClick,
   activeDetailCamera,
+  nvrIps = new Set(),
+  onSyncChannels,
 }) {
   if (cameras.length === 0) {
     return (
@@ -48,7 +51,10 @@ function CameraTable({
                 className="bg-slate-950/50 hover:bg-slate-900"
               >
                 <td className="px-4 py-3">
-                  <div className="font-medium text-slate-100">
+                  <div className="font-medium text-slate-100 flex items-center gap-2">
+                    {nvrIps.has(camera.ip_address || camera.ip) && (
+                      <FiServer size={14} className="text-amber-400 shrink-0" title="NVR Device" />
+                    )}
                     {camera.name}
                   </div>
                   <div className="text-xs text-slate-500">#{camera.id}</div>
@@ -79,6 +85,15 @@ function CameraTable({
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex justify-end gap-2 text-xs">
+                    {nvrIps.has(camera.ip_address || camera.ip) && (
+                      <button
+                        onClick={() => onSyncChannels?.(camera)}
+                        className="rounded-md border border-amber-700 px-2.5 py-1 text-amber-400 hover:bg-amber-950/40"
+                        title="Sync NVR channels to camera list"
+                      >
+                        Sync
+                      </button>
+                    )}
                     <button
                       onClick={() => onEdit?.(camera)}
                       className="rounded-md border border-slate-700 px-2.5 py-1 text-slate-300 hover:bg-slate-800"

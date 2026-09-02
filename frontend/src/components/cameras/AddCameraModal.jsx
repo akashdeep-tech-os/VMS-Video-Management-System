@@ -2,15 +2,11 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { createPortal } from "react-dom";
 import { IoClose } from "react-icons/io5";
 import { IoChevronDown } from "react-icons/io5";
-import { FiZap, FiHardDrive, FiClock } from "react-icons/fi";
+import { FiHardDrive, FiClock } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import nvrService from "../../api/nvrService";
 import cameraService from "../../api/cameraService";
 import { siteService } from "../../api/orgService";
-
-/** How long a SUCCESSFUL Test banner stays up before dismissing itself.
- *  Failures are never auto-dismissed - see the timer effect. */
-const TEST_RESULT_TIMEOUT_MS = 10000;
 
 /** Small inline spinner for buttons. */
 function Spinner({ size = 11 }) {
@@ -51,9 +47,7 @@ function AddCameraModal({
     storagePath: "",
   });
 
-  const [testStatus, setTestStatus] = useState("idle");
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [testResult, setTestResult] = useState(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const brandRef = useRef(null);
   const brandBtnRef = useRef(null);
@@ -140,24 +134,7 @@ function AddCameraModal({
   const [isAddingSite, setIsAddingSite] = useState(false);
   const [newSiteName, setNewSiteName] = useState("");
 
-  // Any discovery call in flight (test preview OR real registration). Both hit
-  // the same slow, sequential endpoint, so both lock the actions.
-  const busy = isSubmitting || testStatus === "testing";
-
   const isNvr = form.cameraNvrType === "nvr";
-  // For NVR, Add Device is gated behind a successful preview Test.
-  const [nvrPreviewOk, setNvrPreviewOk] = useState(false);
-  useEffect(() => {
-    setNvrPreviewOk(false);
-  }, [
-    form.ip,
-    form.username,
-    form.password,
-    form.cameraNvrType,
-    form.connectionType,
-    form.group,
-    form.subGroup,
-  ]);
 
   const selectedStation = useMemo(
     () => groups.find((g) => g.name === form.group) || null,
@@ -203,40 +180,10 @@ function AddCameraModal({
     onvif_port: form.httpPort ? Number(form.httpPort) : undefined,
     username: form.username || undefined,
     plain_password: form.password || undefined,
-    // Device channel CAPACITY. Stored on the NVR row so every future scan is
-    // bounded automatically, without the operator re-entering it.
     no_of_channels: form.noOfChannels ? Number(form.noOfChannels) : undefined,
     department_id: selectedDept?.id,
     station_id: selectedStation?.id,
     site_id: selectedSite?.id,
-  });
-
-  // Test button -> preview dry-run. Add Device -> real run.
-  //
-  // METHOD differs on purpose:
-  //  - Test uses ONVIF, so the result answers one question cleanly: does this
-  //    device speak ONVIF? AUTO would silently fall back to RTSP probing and
-  //    report success, hiding the fact that ONVIF is unavailable.
-  //  - Add Device uses AUTO, which is what you actually want when registering:
-  //    ONVIF when possible, bounded RTSP probing when not.
-  //
-  // maxChannels bounds the scan. It matters most for AUTO's RTSP fallback,
-  // which REFUSES to run unbounded (sweeping past a device's real capacity can
-  // register wrap-around alias channels). Operator-supplied count wins; 16 is
-  // the default for the common case.
-  const discoveryOpts = (preview) => ({
-    preview,
-    method: preview ? "ONVIF" : "AUTO",
-    maxChannels: form.noOfChannels ? Number(form.noOfChannels) : 16,
-    zone: form.subGroup || form.group,
-    stationId: selectedStation?.id,
-    siteId: selectedSite?.id,
-    rewriteRtspPort: true,
-    // Vendor hint for AUTO's RTSP fallback: reorders the URL-convention loop
-    // so the right one is tried first (and is the only way to reach the
-    // Hawkvision convention). Collected by the Brand picker that appears when
-    // the ONVIF test fails - exactly when the fallback is what will run.
-    brand: form.brand || undefined,
   });
 
   useEffect(() => {
@@ -282,20 +229,6 @@ function AddCameraModal({
     };
   }, [brandOpen]);
 
-  // Auto-dismiss SUCCESS only. A FAILURE stays until the operator dismisses it
-  // (the x) or runs another test: its message is the diagnostic they need to
-  // act on - which port was tried, whether the device wants HTTPS, whether to
-  // fall back to RTSP - and it sits right next to the Brand/Channels fields
-  // that appear on failure. Timing that out mid-read would be hostile.
-  //
-  // Either way this clears only `testResult` (the banner), never `testStatus`,
-  // which drives the Test button label and reveals those fallback fields.
-  useEffect(() => {
-    if (!testResult || !testResult.reachable) return;
-    const timer = setTimeout(() => setTestResult(null), TEST_RESULT_TIMEOUT_MS);
-    return () => clearTimeout(timer);
-  }, [testResult]);
-
   useEffect(() => {
     // Only (re)initialise while the modal is actually open.
     if (!isOpen) return;
@@ -327,8 +260,6 @@ function AddCameraModal({
     } else {
       handleReset();
     }
-    setTestStatus("idle");
-    setTestResult(null);
     // DEPEND ON IDS, NOT OBJECT IDENTITY. The parent re-reads departments from
     // localStorage on a 500ms timer, so `currentDepartment` is a fresh
     // JSON.parse'd object on every tick where the version key changed. With the
@@ -353,17 +284,6 @@ function AddCameraModal({
     if (name === "group") {
       updates.subGroup = "";
     }
-    // An NVR is discovered channel-by-channel via ONVIF; a single pasted RTSP
-    // URL cannot describe a multi-channel device. Selecting NVR while RTSP is
-    // active would otherwise leave an unreachable combination selected, so
-    // fall back to ONVIF.
-    if (
-      name === "cameraNvrType" &&
-      value === "nvr" &&
-      form.connectionType === "RTSP"
-    ) {
-      updates.connectionType = "ONVIF";
-    }
     setForm((prev) => ({ ...prev, ...updates }));
   };
 
@@ -387,8 +307,6 @@ function AddCameraModal({
       recordingMode: "local",
       storagePath: "",
     });
-    setTestStatus("idle");
-    setTestResult(null);
   };
 
   const handleSubmit = async () => {
@@ -407,11 +325,33 @@ function AddCameraModal({
     setIsSubmitting(true);
     try {
       let createdCamera;
-      if (form.connectionType === "RTSP") {
-        // RTSP direct: register via NVR discovery (if backend supports it)
+      if (isNvr) {
+        // NVR: always use multi-channel discovery regardless of connection type
         await nvrService.discoverForConnection(
           buildNvrBody(),
-          discoveryOpts(false),
+          {
+            method: "AUTO",
+            maxChannels: form.noOfChannels ? Number(form.noOfChannels) : 16,
+            zone: form.subGroup || form.group,
+            stationId: selectedStation?.id,
+            siteId: selectedSite?.id,
+            rewriteRtspPort: true,
+            brand: form.brand || undefined,
+          },
+        );
+      } else if (form.connectionType === "RTSP") {
+        // RTSP direct: single camera via NVR discovery
+        await nvrService.discoverForConnection(
+          buildNvrBody(),
+          {
+            method: "AUTO",
+            maxChannels: 1,
+            zone: form.subGroup || form.group,
+            stationId: selectedStation?.id,
+            siteId: selectedSite?.id,
+            rewriteRtspPort: true,
+            brand: form.brand || undefined,
+          },
         );
       } else {
         // ONVIF: use the real camera registration endpoint
@@ -432,69 +372,13 @@ function AddCameraModal({
       }
       onSave(createdCamera); // parent refetches from the backend
       handleReset();
-      setNvrPreviewOk(false);
       setIsAddingSite(false);
       setNewSiteName("");
       onClose();
     } catch (err) {
-      setTestStatus("disconnected");
-      setTestResult({
-        reachable: false,
-        message: err.message || "Failed to add device",
-      });
       alert("Failed to add device: " + (err.message || "Unknown error"));
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleTestConnection = async () => {
-    if (!form.ip) return;
-    setTestStatus("testing");
-    setTestResult(null);
-    try {
-      if (form.connectionType === "RTSP") {
-        // RTSP: use NVR discovery for preview
-        const res = await nvrService.discoverForConnection(
-          buildNvrBody(),
-          discoveryOpts(true),
-        );
-        const found =
-          res?.channels_probed ??
-          res?.registered ??
-          (res?.cameras?.length || 0);
-        setTestResult({
-          reachable: true,
-          protocol: res?.method,
-          message: `Reachable — ${found} channel(s) found. Click Add Device to register them.`,
-        });
-      } else {
-        // ONVIF: probe the camera by attempting create, then delete if test-only
-        const created = await cameraService.create({
-          name: form.name || "Test Camera",
-          ip_address: form.ip,
-          onvif_port: form.httpPort ? Number(form.httpPort) : 80,
-          rtsp_port: form.rtspPort ? Number(form.rtspPort) : 554,
-          username: form.username || "",
-          password: form.password || "",
-        });
-        // Camera was created during test - remove it since user only wanted to test
-        if (created?.id) {
-          await cameraService.remove(created.id);
-        }
-        setTestResult({
-          reachable: true,
-          protocol: "ONVIF",
-          message:
-            "Camera reachable and validated. Click Add Device to register.",
-        });
-      }
-      setTestStatus("connected");
-      setNvrPreviewOk(true);
-    } catch (err) {
-      setTestResult({ reachable: false, message: err.message });
-      setTestStatus("disconnected");
-      setNvrPreviewOk(false);
     }
   };
 
@@ -738,39 +622,23 @@ function AddCameraModal({
                   </div>
                 )}
 
-                {/* ONVIF-FAILED FALLBACK DETAILS.
-                    A failed test means registration will fall back to RTSP
-                    probing, which needs two things ONVIF would have supplied:
-                      - Brand: the fallback guesses per-vendor URL conventions,
-                        so naming the vendor lets it try the right one FIRST
-                        instead of walking candidates blindly.
-                      - Channels: the fallback REFUSES to run unbounded, because
-                        sweeping past a device's real capacity can register
-                        wrap-around alias channels (one camera answering on both
-                        ch1 and ch9 of an 8-channel unit). Read it off the
-                        device-info page. */}
-                {testStatus === "disconnected" && (
-                  <>
-                    <div className={rowClass}>
-                      <label className={labelClass}>Channels</label>
-                      <div className={fieldClass}>
-                        <input
-                          type="number"
-                          min="1"
-                          max="128"
-                          name="noOfChannels"
-                          value={form.noOfChannels}
-                          onChange={handleChange}
-                          placeholder="Number of channels (e.g. 16)"
-                          className={inputClass}
-                        />
-                        <p className="text-[10px] text-[var(--text-muted)] mt-1">
-                          ONVIF didn’t answer. Give the device’s brand and
-                          channel count so it can be scanned over RTSP instead.
-                        </p>
-                      </div>
+                {/* Channels field - shown for NVR devices */}
+                {isNvr && (
+                  <div className={rowClass}>
+                    <label className={labelClass}>Channels</label>
+                    <div className={fieldClass}>
+                      <input
+                        type="number"
+                        min="1"
+                        max="128"
+                        name="noOfChannels"
+                        value={form.noOfChannels}
+                        onChange={handleChange}
+                        placeholder="Number of channels (e.g. 16)"
+                        className={inputClass}
+                      />
                     </div>
-                  </>
+                  </div>
                 )}
 
                 {/* Row 6: Username + Password.
@@ -872,127 +740,13 @@ function AddCameraModal({
                 )}
               </div>
 
-              {/* DISCOVERY IN FLIGHT — indeterminate, because the duration is
-                  genuinely unknown up front: probing is SEQUENTIAL and paced
-                  (~1s between channels, to stay under NVR anti-brute-force
-                  lockout), so a 16-channel scan runs 20s+ and ONVIF adds its
-                  own round-trips. A percentage would be a lie; the elapsed
-                  hint sets expectations instead. */}
-              {busy && (
-                <div className="mt-3 rounded-lg border border-[var(--border-color)] bg-[var(--input-bg)] px-3 py-2">
-                  <div className="flex items-center gap-2 text-[11px] font-semibold text-[var(--text-dark)]">
-                    <Spinner size={12} />
-                    {isSubmitting
-                      ? "Registering device and its channels…"
-                      : "Probing device…"}
-                  </div>
-                  <div className="mt-2 h-1 w-full overflow-hidden rounded-full bg-[var(--border-color)]">
-                    <div className="h-full w-1/3 rounded-full bg-[var(--primary-color)] animate-[vms-indeterminate_1.2s_ease-in-out_infinite]" />
-                  </div>
-                  <p className="mt-1.5 text-[10px] text-[var(--text-muted)]">
-                    Channels are probed one at a time — this can take a while on
-                    a multi-channel NVR. Please don’t close this window.
-                  </p>
-                </div>
-              )}
-
-              {/* TEST RESULT — pinned at the BOTTOM, just above the actions,
-                  instead of inline in the middle of the form (where it shoved
-                  every field below it down the moment a test finished).
-                  Auto-dismisses; see the timer effect. Long ONVIF diagnostics
-                  can run to several lines, so it scrolls rather than growing
-                  the modal, and can be closed early. */}
-              {testResult && (
-                <div
-                  className={`mt-3 rounded-lg px-3 py-2 text-[11px] border relative ${
-                    testResult.reachable
-                      ? "bg-emerald-50 border-emerald-200 text-emerald-700"
-                      : "bg-red-50 border-red-200 text-red-700"
-                  }`}
-                >
-                  <button
-                    type="button"
-                    onClick={() => setTestResult(null)}
-                    className="absolute top-1.5 right-1.5 opacity-50 hover:opacity-100 transition-opacity"
-                    aria-label="Dismiss"
-                  >
-                    <IoClose size={13} />
-                  </button>
-                  <div className="font-semibold mb-0.5 pr-5">
-                    {testResult.reachable
-                      ? "Device Reachable"
-                      : "Device Unreachable"}
-                  </div>
-                  <div className="text-[10px] opacity-80 max-h-[72px] overflow-y-auto pr-1">
-                    {testResult.message}
-                  </div>
-                  {testResult.reachable && (
-                    <div className="flex gap-3 mt-1 text-[10px] opacity-70">
-                      {testResult.protocol && (
-                        <span>Protocol: {testResult.protocol}</span>
-                      )}
-                      {testResult.channelCount != null && (
-                        <span>Channels: {testResult.channelCount}</span>
-                      )}
-                      {testResult.videoCodec && (
-                        <span>Codec: {testResult.videoCodec}</span>
-                      )}
-                      {testResult.onvifPort && (
-                        <span>ONVIF Port: {testResult.onvifPort}</span>
-                      )}
-                    </div>
-                  )}
-                  {testResult.credentialsRejected && (
-                    <div className="mt-1 font-semibold text-red-600">
-                      Credentials rejected — check username and password.
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* FOOTER ACTIONS */}
-              <div className="flex justify-between items-center gap-2 mt-3 pt-3 border-t border-[var(--border-color)]">
-                {/* Test — bottom-left. Only meaningful when an IP is present,
-                    and hidden entirely for RTSP: there is no device to probe,
-                    just a stream URL that either plays or doesn't. The empty
-                    span keeps the footer's justify-between layout intact. */}
-                {form.connectionType === "RTSP" ? (
-                  <span />
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleTestConnection}
-                    disabled={!form.ip || busy || isEditMode}
-                    className={`px-3 py-2 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 shrink-0 ${
-                      testStatus === "connected"
-                        ? "bg-emerald-500 text-white hover:opacity-90"
-                        : testStatus === "disconnected"
-                          ? "bg-red-500 text-white hover:opacity-90"
-                          : testStatus === "testing"
-                            ? "bg-yellow-500 text-white cursor-wait animate-pulse"
-                            : "bg-emerald-500 text-white hover:opacity-90"
-                    } disabled:opacity-50 disabled:cursor-not-allowed`}
-                  >
-                    {testStatus === "testing" ? (
-                      <Spinner size={11} />
-                    ) : (
-                      <FiZap size={11} />
-                    )}
-                    {testStatus === "testing"
-                      ? "Testing..."
-                      : testStatus === "connected"
-                        ? "Connected"
-                        : testStatus === "disconnected"
-                          ? "Failed"
-                          : "Test"}
-                  </button>
-                )}
-
+              <div className="flex justify-end items-center gap-2 mt-3 pt-3 border-t border-[var(--border-color)]">
                 <div className="flex gap-2">
                   <button
                     type="button"
                     onClick={handleReset}
-                    disabled={busy}
+                    disabled={isSubmitting}
                     className="px-4 py-2 rounded-lg text-[var(--text-muted)] hover:text-[var(--text-dark)] hover:bg-[var(--hover-bg)] transition-all text-xs font-semibold border border-[var(--border-color)] disabled:opacity-50 disabled:cursor-not-allowed"
                   >
                     Reset
@@ -1000,11 +754,7 @@ function AddCameraModal({
                   <button
                     type="button"
                     onClick={handleSubmit}
-                    // Disabled while ANY discovery is in flight - a second
-                    // submit would start a parallel scan of the same device,
-                    // which is exactly the burst pattern the paced prober
-                    // exists to avoid.
-                    disabled={busy}
+                    disabled={isSubmitting}
                     className="px-5 py-2 bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg text-xs font-bold shadow-md transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
                   >
                     {isSubmitting && <Spinner size={11} />}

@@ -3,6 +3,7 @@ import { useOutletContext } from "react-router-dom";
 import CameraTable from "../../components/cameras/CameraTable";
 import CameraHeader from "../../components/cameras/CameraHeader";
 import cameraService from "../../api/cameraService";
+import nvrService from "../../api/nvrService";
 import AddCameraModal from "../../components/cameras/AddCameraModal";
 import CameraDetailsDrawer from "../../components/cameras/CameraDetailsDrawer";
 import { AnimatePresence } from "framer-motion";
@@ -29,6 +30,8 @@ function Addcamera({ onBack }) {
   const [group, setGroup] = useState("all");
   const [selectedIds, setSelectedIds] = useState([]);
   const [cameras, setCameras] = useState([]);
+  const [nvrIps, setNvrIps] = useState(new Set());
+  const [nvrMap, setNvrMap] = useState({});
 
   const [showModal, setShowModal] = useState(false);
   const [activeDetailCamera, setActiveDetailCamera] = useState(null);
@@ -58,6 +61,19 @@ function Addcamera({ onBack }) {
     loadCameras();
   }, [loadCameras]);
 
+  // Load NVR list to identify which cameras are NVRs
+  useEffect(() => {
+    nvrService.list().then((list) => {
+      if (Array.isArray(list)) {
+        const ips = new Set(list.map((n) => n.ip_address));
+        const map = {};
+        list.forEach((n) => { map[n.ip_address] = n; });
+        setNvrIps(ips);
+        setNvrMap(map);
+      }
+    }).catch(() => {});
+  }, []);
+
   useEffect(() => {
     if (setIsPageBlurred) {
       setIsPageBlurred(showModal);
@@ -67,6 +83,18 @@ function Addcamera({ onBack }) {
 
   const handleRefresh = () => {
     loadCameras();
+  };
+
+  const handleSyncChannels = async (camera) => {
+    const nvr = nvrMap[camera.ip_address || camera.ip];
+    if (!nvr) return;
+    try {
+      await nvrService.discoverCameras(nvr.id, { maxChannels: nvr.no_of_channels || 16 });
+      loadCameras();
+      refreshCameras?.();
+    } catch (err) {
+      alert("Failed to sync channels: " + (err.message || "Unknown error"));
+    }
   };
 
   const toggleVisibility = (id) => {
@@ -189,6 +217,8 @@ function Addcamera({ onBack }) {
             toggleSelectAll={toggleSelectAll}
             onRowDetailsClick={(cam) => setActiveDetailCamera(cam)}
             activeDetailCamera={activeDetailCamera}
+            nvrIps={nvrIps}
+            onSyncChannels={handleSyncChannels}
           />
         </div>
 

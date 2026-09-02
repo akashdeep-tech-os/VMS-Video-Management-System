@@ -7,6 +7,7 @@ class NVRBase(BaseModel):
     name: str = Field(min_length=1, max_length=120)
     ip_address: str = Field(min_length=7, max_length=45)
     port: int = Field(default=80, ge=1, le=65535)
+    rtsp_port: int = Field(default=554, ge=1, le=65535)
     username: str = Field(default="", max_length=255)
     password: str = Field(default="", max_length=255)
 
@@ -22,6 +23,7 @@ class NVRUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=120)
     ip_address: str | None = Field(default=None, min_length=7, max_length=45)
     port: int | None = Field(default=None, ge=1, le=65535)
+    rtsp_port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, max_length=255)
     enabled: bool | None = None

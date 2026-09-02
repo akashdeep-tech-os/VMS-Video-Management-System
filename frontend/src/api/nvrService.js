@@ -60,13 +60,15 @@ const nvrService = {
   // "hikvision", "hawkvision") — it reorders which URL convention is tried
   // first, and is the only way to reach the Hawkvision convention, which is
   // not attempted by default. Omit to use the brand stored on the NVR row.
-  discoverCameras(id, { method, maxChannels, startChannel, zone, brand } = {}) {
+  discoverCameras(id, { method, maxChannels, startChannel, zone, brand, stationId, siteId } = {}) {
     return apiClient.post(`/nvrs/${id}/discover-cameras`, {
       method,
       max_channels: maxChannels,
       start_channel: startChannel,
       zone,
       brand,
+      station_id: stationId,
+      site_id: siteId,
     });
   },
 
