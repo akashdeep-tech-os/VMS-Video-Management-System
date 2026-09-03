@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { IoClose } from "react-icons/io5";
 import { IoChevronDown } from "react-icons/io5";
@@ -6,7 +6,6 @@ import { FiHardDrive, FiClock } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 import nvrService from "../../api/nvrService";
 import cameraService from "../../api/cameraService";
-import { siteService } from "../../api/orgService";
 
 /** Small inline spinner for buttons. */
 function Spinner({ size = 11 }) {
@@ -24,13 +23,9 @@ function AddCameraModal({
   onClose,
   onSave,
   editingCamera,
-  currentDepartment,
 }) {
   const [form, setForm] = useState({
     name: "",
-    department: "",
-    group: "",
-    subGroup: "",
     cameraNvrType: "",
     connectionType: "ONVIF",
     brand: "",
@@ -78,112 +73,23 @@ function AddCameraModal({
 
   const isEditMode = !!editingCamera;
 
-  const [departments, setDepartments] = useState(() => {
-    const saved = localStorage.getItem("vms_departments");
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  // Re-read departments from localStorage when modal opens
-  useEffect(() => {
-    if (isOpen) {
-      const saved = localStorage.getItem("vms_departments");
-      if (saved) {
-        try {
-          setDepartments(JSON.parse(saved));
-        } catch {}
-      }
-    }
-  }, [isOpen]);
-
-  // Find selected department - always look up latest from departments array
-  const selectedDept = useMemo(() => {
-    const deptId =
-      currentDepartment?.id ||
-      (form.department ? Number(form.department) : null);
-    if (!deptId) return currentDepartment || null;
-    return (
-      departments.find((d) => d.id === deptId) || currentDepartment || null
-    );
-  }, [departments, form.department, currentDepartment]);
-
-  // Derive groups from selectedDept
-  const groups = useMemo(() => {
-    return selectedDept?.groups || [];
-  }, [selectedDept]);
-
-  // Sites fetched from the BACKEND for the selected station, keyed by station
-  // id. The localStorage mirror below is only populated as a side effect of
-  // drilling into a station in Settings, so on a fresh browser (or for sites
-  // created by anyone else) it is empty and the dropdown looked broken.
-  // GET /sites is the source of truth; the cache is just the fallback.
-  const [sitesByStation, setSitesByStation] = useState({});
-
-  const subGroups = useMemo(() => {
-    if (!form.group || !selectedDept) return [];
-    const stationId = groups.find((g) => g.name === form.group)?.id;
-    const fetched = stationId != null ? sitesByStation[stationId] : null;
-    if (fetched) return fetched;
-    // Fallback: the locally-cached hierarchy (used until the fetch lands, and
-    // if the request fails).
-    const latestDept = departments.find((d) => d.id === selectedDept.id);
-    const deptGroups = latestDept?.groups || selectedDept?.groups || [];
-    const matchedGroup = deptGroups.find((g) => g.name === form.group);
-    return matchedGroup?.subGroups || [];
-  }, [form.group, selectedDept, departments, groups, sitesByStation]);
-
-  const [isAddingSite, setIsAddingSite] = useState(false);
-  const [newSiteName, setNewSiteName] = useState("");
-
   const isNvr = form.cameraNvrType === "nvr";
 
-  const selectedStation = useMemo(
-    () => groups.find((g) => g.name === form.group) || null,
-    [groups, form.group],
-  );
-  const selectedSite = useMemo(
-    () => subGroups.find((sg) => sg.name === form.subGroup) || null,
-    [subGroups, form.subGroup],
-  );
-
-  // Load the selected station's sites from the backend. Runs whenever the
-  // station changes while the modal is open; results are cached per station id
-  // so re-picking a station doesn't refetch.
-  useEffect(() => {
-    const stationId = selectedStation?.id;
-    if (!isOpen || stationId == null || sitesByStation[stationId]) return;
-    let cancelled = false;
-    siteService
-      .list({ station_id: stationId })
-      .then((list) => {
-        if (cancelled) return;
-        const sites = (Array.isArray(list) ? list : []).map((s) => ({
-          id: s.id,
-          name: s.name,
-          createdAt: s.created_at,
-        }));
-        setSitesByStation((prev) => ({ ...prev, [stationId]: sites }));
-      })
-      .catch((err) => {
-        // Non-fatal: the localStorage fallback still supplies whatever is cached.
-        console.error("Failed to load sites for station", stationId, err);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [isOpen, selectedStation?.id, sitesByStation]);
-
   // NvrRegistrationRequest body (snake_case) for the id-less discover endpoint.
+  // `name` and `brand_name` are distinct on purpose: channel labels are built
+  // from the Device Name, while the brand only selects an RTSP path template.
+  // Collapsing them is what produced labels like "cpplus - CH1" for every
+  // CP Plus recorder on the account.
   const buildNvrBody = () => ({
-    brand_name: form.brand || form.name || "NVR",
+    name: form.name,
+    brand_name: form.brand || undefined,
     ip_address: form.ip,
     rtsp_port: form.rtspPort ? Number(form.rtspPort) : undefined,
     onvif_port: form.httpPort ? Number(form.httpPort) : undefined,
     username: form.username || undefined,
     plain_password: form.password || undefined,
     no_of_channels: form.noOfChannels ? Number(form.noOfChannels) : undefined,
-    department_id: selectedDept?.id,
-    station_id: selectedStation?.id,
-    site_id: selectedSite?.id,
+    is_nvr: isNvr,
   });
 
   useEffect(() => {
@@ -235,15 +141,7 @@ function AddCameraModal({
     if (editingCamera) {
       setForm({
         name: editingCamera.name || "",
-        department:
-          editingCamera.department ||
-          (currentDepartment?.id ? String(currentDepartment.id) : ""),
-        group: editingCamera.group || "",
-        subGroup: editingCamera.subGroup || "",
         cameraNvrType: editingCamera.cameraNvrType || "",
-        // ONBRAND was removed as a resolving method; anything stored with it
-        // (or with an unrecognised value) reads back as ONVIF so the select
-        // never sits on an option that no longer exists.
         connectionType:
           editingCamera.connectionType === "RTSP" ? "RTSP" : "ONVIF",
         ip: editingCamera.ip || "",
@@ -260,41 +158,20 @@ function AddCameraModal({
     } else {
       handleReset();
     }
-    // DEPEND ON IDS, NOT OBJECT IDENTITY. The parent re-reads departments from
-    // localStorage on a 500ms timer, so `currentDepartment` is a fresh
-    // JSON.parse'd object on every tick where the version key changed. With the
-    // object in the deps, ANY such tick re-ran this effect and (in add mode)
-    // called handleReset() - which wiped a half-filled form ~500ms after
-    // creating a site inline, since that write bumps the version key.
-    // The ids are stable primitives, so the effect now fires only when the
-    // modal opens or the actual target changes.
-    //
-    // isOpen is here so reopening for another ADD starts blank (both ids stay
-    // null/undefined between adds, which would otherwise not re-trigger).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, editingCamera?.id, currentDepartment?.id]);
+  }, [isOpen, editingCamera?.id]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
-    const updates = { [name]: value };
-    if (name === "department") {
-      updates.group = "";
-      updates.subGroup = "";
-    }
-    if (name === "group") {
-      updates.subGroup = "";
-    }
-    setForm((prev) => ({ ...prev, ...updates }));
+    setForm((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleReset = () => {
     setForm({
       name: "",
-      department: currentDepartment?.id ? String(currentDepartment.id) : "",
-      group: "",
-      subGroup: "",
       cameraNvrType: "",
       connectionType: "ONVIF",
+      brand: "",
       ip: "",
       httpPort: "",
       rtspPort: "",
@@ -326,33 +203,23 @@ function AddCameraModal({
     try {
       let createdCamera;
       if (isNvr) {
-        // NVR: always use multi-channel discovery regardless of connection type
-        await nvrService.discoverForConnection(
-          buildNvrBody(),
-          {
-            method: "AUTO",
-            maxChannels: form.noOfChannels ? Number(form.noOfChannels) : 16,
-            zone: form.subGroup || form.group,
-            stationId: selectedStation?.id,
-            siteId: selectedSite?.id,
-            rewriteRtspPort: true,
-            brand: form.brand || undefined,
-          },
-        );
+        // NVR: one row per channel, labelled "<Device Name>-Ch-<N>".
+        await nvrService.discoverForConnection(buildNvrBody(), {
+          method: "AUTO",
+          maxChannels: form.noOfChannels ? Number(form.noOfChannels) : 16,
+          rewriteRtspPort: true,
+          brand: form.brand || undefined,
+        });
       } else if (form.connectionType === "RTSP") {
-        // RTSP direct: single camera via NVR discovery
-        await nvrService.discoverForConnection(
-          buildNvrBody(),
-          {
-            method: "AUTO",
-            maxChannels: 1,
-            zone: form.subGroup || form.group,
-            stationId: selectedStation?.id,
-            siteId: selectedSite?.id,
-            rewriteRtspPort: true,
-            brand: form.brand || undefined,
-          },
-        );
+        // A bare RTSP URL already carries host, port, path and credentials, so
+        // it goes to the endpoint that parses it. Routing it through NVR
+        // discovery used to register a recorder with a blank ip_address.
+        createdCamera = await cameraService.createRtsp({
+          name: form.name,
+          rtsp_url: form.rtsp,
+          latitude: form.latitude ? Number(form.latitude) : null,
+          longitude: form.longitude ? Number(form.longitude) : null,
+        });
       } else {
         // ONVIF: use the real camera registration endpoint
         createdCamera = await cameraService.create({
@@ -364,16 +231,10 @@ function AddCameraModal({
           password: form.password || "",
           latitude: form.latitude ? Number(form.latitude) : null,
           longitude: form.longitude ? Number(form.longitude) : null,
-          station_id: selectedStation?.id || null,
-          station_name: form.group || null,
-          site_id: selectedSite?.id || null,
-          site_name: form.subGroup || null,
         });
       }
       onSave(createdCamera); // parent refetches from the backend
       handleReset();
-      setIsAddingSite(false);
-      setNewSiteName("");
       onClose();
     } catch (err) {
       alert("Failed to add device: " + (err.message || "Unknown error"));
@@ -381,52 +242,6 @@ function AddCameraModal({
       setIsSubmitting(false);
     }
   };
-
-  const handleAddNewSite = useCallback(async () => {
-    if (!newSiteName.trim() || !selectedDept || !form.group) return;
-    const groupObj = groups.find((g) => g.name === form.group);
-    if (!groupObj) return;
-
-    // Create it on the BACKEND first. This used to mint a local
-    // `id: Date.now()` and write only to localStorage, so the site never
-    // existed server-side - and worse, that fake id was then sent as
-    // `site_id` in buildNvrBody(), which the backend rejects as a 404.
-    // The real id from the response is what gets stored and submitted.
-    let created;
-    try {
-      created = await siteService.create({
-        name: newSiteName.trim(),
-        station_id: groupObj.id,
-      });
-    } catch (err) {
-      alert("Failed to create site: " + (err.message || "Unknown error"));
-      return;
-    }
-
-    const newSubGroup = {
-      id: created.id,
-      name: created.name,
-      createdAt: created.created_at || new Date().toISOString(),
-    };
-
-    // Add it to the fetched list too, so the dropdown shows it right away
-    // without a refetch (the localStorage mirror below is the fallback path).
-
-    localStorage.setItem("vms_departments", JSON.stringify(updated));
-    localStorage.setItem("vms_departments_version", String(Date.now()));
-    // Also update the selected department in localStorage
-    const updatedDept = updated.find((d) => d.id === selectedDept.id);
-    if (updatedDept) {
-      localStorage.setItem(
-        "vms_settings_selected_dept",
-        JSON.stringify(updatedDept),
-      );
-    }
-    setDepartments(updated);
-    setForm((prev) => ({ ...prev, subGroup: created.name }));
-    setNewSiteName("");
-    setIsAddingSite(false);
-  }, [newSiteName, selectedDept, form.group, groups, departments]);
 
   const inputClass =
     "w-full px-3.5 py-2 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg focus:border-[var(--primary-color)] outline-none transition-all text-[13px] text-[var(--text-dark)] placeholder:text-[var(--text-muted)]";

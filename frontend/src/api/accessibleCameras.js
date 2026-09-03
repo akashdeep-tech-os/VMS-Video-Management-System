@@ -10,35 +10,45 @@ import userService, { currentUserId } from "./userService";
 export const RIGHT_LIVE_MONITORING = "LIVE_MONITORING";
 export const RIGHT_PLAYBACK = "PLAYBACK";
 
-// Convert the backend AccessibleCamerasResponse (Station -> Site -> Camera,
-// snake_case) into the sidebar tree shape plus a name-keyed metadata lookup.
+// Convert the backend response (either flat camera list or station tree) into
+// a flat { cameras, meta } shape the sidebar consumes.
 export function treeToGroups(resp) {
-  const stations = resp?.stations || [];
-  const groups = [];
+  const cameras = [];
   const meta = {};
 
+  // New flat format: array of camera objects
+  if (Array.isArray(resp)) {
+    resp.forEach((cam) => {
+      cameras.push(cam.name);
+      meta[cam.name] = {
+        id: cam.camera_id,
+        status: cam.online ? "online" : "offline",
+        cameraType: cam.camera_type,
+      };
+    });
+    return { cameras, meta };
+  }
+
+  // Legacy station-tree format: { stations: [...] }
+  const stations = resp?.stations || [];
   stations.forEach((st) => {
-    const sites = (st.sites || []).map((site) => {
-      const cameras = (site.cameras || []).map((cam) => {
+    (st.sites || []).forEach((site) => {
+      (site.cameras || []).forEach((cam) => {
+        cameras.push(cam.name);
         meta[cam.name] = {
           id: cam.camera_id,
-          group: st.station_name,
-          subGroup: site.site_name,
           status: cam.online ? "online" : "offline",
           cameraType: cam.camera_type,
         };
-        return cam.name;
       });
-      return { name: site.site_name, cameras };
     });
-    groups.push({ name: st.station_name, sites });
   });
 
-  return { groups, meta };
+  return { cameras, meta };
 }
 
 // Resolve + fetch the accessible-camera tree for the logged-in user and the
-// given right name. Returns { groups, meta } or null when unauthenticated /
+// given right name. Returns { cameras, meta } or null when unauthenticated /
 // the right isn't in the catalog. Throws on network/API errors.
 export async function loadAccessibleCameras(rightName) {
   const userId = currentUserId();

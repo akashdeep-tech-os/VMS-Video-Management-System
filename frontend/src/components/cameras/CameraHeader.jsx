@@ -6,16 +6,11 @@ function CameraHeader({
   setSearch,
   status,
   setStatus,
-  group,
-  setGroup,
-  groups = [],
   selectedIds = [],
   handleBulkDelete,
   onAddClick,
   onRefresh,
   isRefreshing,
-  departmentName = "",
-  groupLabel = "Group",
   onBack,
   cameraCount = 0,
 }) {
@@ -50,24 +45,6 @@ function CameraHeader({
             className="w-full pl-8 pr-3 py-1.5 text-[11px] rounded-lg border border-[var(--border-color)] focus:outline-none focus:border-[var(--primary-color)] bg-[var(--input-bg)] text-[var(--text-dark)] placeholder:text-[var(--text-muted)] transition-all"
           />
         </div>
-
-        {/* <div className="grid grid-cols-2 gap-1.5 w-full md:flex md:w-auto">
-          <select
-            value={group}
-            onChange={(e) => setGroup(e.target.value)}
-            className="w-full md:w-auto px-2 py-1.5 text-[11px] rounded-lg border border-[var(--border-color)] bg-[var(--card-bg)] text-[var(--text-dark)] cursor-pointer focus:outline-none focus:border-[var(--primary-color)] uppercase"
-          >
-            <option value="all">All {groupLabel}s</option>
-            {groups.map((g) => {
-              const name = typeof g === "string" ? g : g.name;
-              return (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              );
-            })}
-          </select>
-        </div> */}
 
         <div className="flex gap-1.5 w-full md:w-auto items-center">
           <button

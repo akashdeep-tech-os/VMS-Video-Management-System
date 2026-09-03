@@ -29,35 +29,6 @@ const STORAGE_KEY = "vms_live_streaming";
 const LAYOUTS_KEY = "vms_layout_presets";
 const EVENTS_KEY = "vms_recent_events";
 
-// Transform the backend AccessibleCamerasResponse (Station -> Site -> Camera,
-// snake_case) into the sidebar tree plus the name-keyed stream/meta lookups.
-function transformAccessible(resp) {
-  const stations = resp?.stations || [];
-  const groups = [];
-  const meta = {};
-
-  stations.forEach((st) => {
-    const sites = (st.sites || []).map((site) => {
-      const cameras = (site.cameras || []).map((cam) => {
-        const name = cam.name;
-        meta[name] = {
-          id: cam.camera_id,
-          location: site.site_name,
-          group: st.station_name,
-          subGroup: site.site_name,
-          status: cam.online ? "online" : "offline",
-          cameraType: cam.camera_type,
-        };
-        return name;
-      });
-      return { name: site.site_name, cameras };
-    });
-    groups.push({ name: st.station_name, sites });
-  });
-
-  return { groups, meta };
-}
-
 function loadPersisted() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
@@ -88,9 +59,8 @@ function loadEvents() {
 export function LiveStreamingProvider({ children }) {
   const saved = loadPersisted();
 
-  const [cameraGroups, setCameraGroups] = useState(
-    saved?.cameraGroups?.[0]?.sites ? saved.cameraGroups : [],
-  );
+  // Flat list of camera names (replaces the old cameraGroups tree)
+  const [cameraList, setCameraList] = useState(saved?.cameraList ?? []);
   // Name-keyed stream/meta lookups. Empty by default, populated from the
   // backend accessible-cameras tree (see effect below).
   const [baseStreams, setBaseStreams] = useState({});
@@ -103,7 +73,6 @@ export function LiveStreamingProvider({ children }) {
   const [grid, setGrid] = useState(saved?.grid ?? 4);
   const [gridCols, setGridCols] = useState(saved?.gridCols ?? saved?.grid ?? 4);
   const [gridRows, setGridRows] = useState(saved?.gridRows ?? saved?.grid ?? 4);
-  const [openGroups, setOpenGroups] = useState(saved?.openGroups ?? {});
   const [autoShiftEnabled, setAutoShiftEnabled] = useState(
     saved?.autoShiftEnabled ?? false,
   );
@@ -123,8 +92,7 @@ export function LiveStreamingProvider({ children }) {
     let cancelled = false;
     (async () => {
       try {
-        // Try the permissions-based accessible cameras endpoint first
-        let groups, meta;
+        let cameras, meta;
         try {
           if (userId) {
             const rights = await userService.getRights();
@@ -133,8 +101,8 @@ export function LiveStreamingProvider({ children }) {
             );
             if (right) {
               const resp = await userService.getAccessibleCameras(userId, right.id);
-              const result = transformAccessible(resp);
-              groups = result.groups;
+              const result = treeToFlat(resp);
+              cameras = result.cameras;
               meta = result.meta;
             }
           }
@@ -142,32 +110,16 @@ export function LiveStreamingProvider({ children }) {
           // Accessible cameras endpoint not available, fall through to tree
         }
 
-        // Fallback: fetch the flat camera tree from /cameras/tree
-        if (!groups || groups.length === 0) {
+        // Fallback: fetch from /cameras/tree
+        if (!cameras || cameras.length === 0) {
           const treeResp = await cameraService.tree();
-          const stations = treeResp?.stations || [];
-          groups = [];
-          meta = {};
-          stations.forEach((st) => {
-            const sites = (st.sites || []).map((site) => {
-              const cameras = (site.cameras || []).map((cam) => {
-                meta[cam.name] = {
-                  id: cam.camera_id,
-                  group: st.station_name,
-                  subGroup: site.site_name,
-                  status: cam.online ? "online" : "offline",
-                  cameraType: cam.camera_type,
-                };
-                return cam.name;
-              });
-              return { name: site.site_name, cameras };
-            });
-            groups.push({ name: st.station_name, sites });
-          });
+          const result = treeToFlat(treeResp);
+          cameras = result.cameras;
+          meta = result.meta;
         }
 
         if (cancelled) return;
-        setCameraGroups(groups);
+        setCameraList(cameras);
         setCameraMeta(meta);
         // New tree -> drop any stream URLs resolved against the old one.
         setStreamInfo({});
@@ -230,16 +182,8 @@ export function LiveStreamingProvider({ children }) {
   // Tile status tracking for displayed cameras
   const [tileStatuses, setTileStatuses] = useState({});
 
-  // Compute all camera names from the tree
-  const allCameraNames = useMemo(() => {
-    const names = [];
-    cameraGroups.forEach((g) => {
-      g.sites?.forEach((s) => {
-        s.cameras?.forEach((c) => names.push(c));
-      });
-    });
-    return names;
-  }, [cameraGroups]);
+  // All camera names from the flat list
+  const allCameraNames = cameraList;
 
   // Layout
   const totalPages = useMemo(
@@ -343,24 +287,22 @@ export function LiveStreamingProvider({ children }) {
     localStorage.setItem(
       STORAGE_KEY,
       JSON.stringify({
-        cameraGroups,
+        cameraList,
         selectedCams,
         mutedMap,
         grid,
         gridCols,
         gridRows,
-        openGroups,
         autoShiftEnabled,
         autoShiftInterval,
         lockedTiles,
       }),
     );
   }, [
-    cameraGroups,
+    cameraList,
     selectedCams,
     mutedMap,
     grid,
-    openGroups,
     autoShiftEnabled,
     autoShiftInterval,
     lockedTiles,
@@ -383,33 +325,8 @@ export function LiveStreamingProvider({ children }) {
     });
   }, []);
 
-  const toggleGroup = useCallback((key) => {
-    setOpenGroups((p) => ({ ...p, [key]: !p[key] }));
-  }, []);
-
   const toggleAudio = useCallback((cam) => {
     setMutedMap((p) => ({ ...p, [cam]: !p[cam] }));
-  }, []);
-
-  const reorderCamera = useCallback((groupName, fromIdx, toIdx) => {
-    setCameraGroups((prev) =>
-      prev.map((g) => {
-        if (g.name !== groupName) return g;
-        const allCams = g.sites.flatMap((s) => s.cameras);
-        const [moved] = allCams.splice(fromIdx, 1);
-        allCams.splice(toIdx, 0, moved);
-        let i = 0;
-        return {
-          ...g,
-          sites: g.sites.map((s) => {
-            const count = s.cameras.length;
-            const cams = allCams.slice(i, i + count);
-            i += count;
-            return { ...s, cameras: cams };
-          }),
-        };
-      }),
-    );
   }, []);
 
   const placeCameraAtIndex = useCallback((camName, gridIndex) => {
@@ -422,28 +339,13 @@ export function LiveStreamingProvider({ children }) {
     });
   }, []);
 
-  const selectAllInGroup = useCallback(
-    (groupName) => {
-      const group = cameraGroups.find((g) => g.name === groupName);
-      if (!group) return;
-      const allCams = group.sites.flatMap((s) => s.cameras);
-      setSelectedCams((prev) => {
-        const merged = [...new Set([...prev, ...allCams])];
-        return merged;
-      });
-    },
-    [cameraGroups],
-  );
+  const selectAllCameras = useCallback(() => {
+    setSelectedCams((prev) => [...new Set([...prev, ...cameraList])]);
+  }, [cameraList]);
 
-  const deselectAllInGroup = useCallback(
-    (groupName) => {
-      const group = cameraGroups.find((g) => g.name === groupName);
-      if (!group) return;
-      const allCams = new Set(group.sites.flatMap((s) => s.cameras));
-      setSelectedCams((prev) => prev.filter((c) => !allCams.has(c)));
-    },
-    [cameraGroups],
-  );
+  const deselectAllCameras = useCallback(() => {
+    setSelectedCams([]);
+  }, []);
 
   const clearAllCameras = useCallback(() => {
     setSelectedCams([]);
@@ -460,8 +362,8 @@ export function LiveStreamingProvider({ children }) {
 
   const value = useMemo(
     () => ({
-      cameraGroups,
-      setCameraGroups,
+      cameraList,
+      setCameraList,
       baseStreams,
       cameraMeta,
       cameraStreams,
@@ -477,14 +379,11 @@ export function LiveStreamingProvider({ children }) {
       setGridCols,
       gridRows,
       setGridRows,
-      openGroups,
-      toggleGroup,
       toggleCamera,
       toggleAudio,
-      reorderCamera,
       placeCameraAtIndex,
-      selectAllInGroup,
-      deselectAllInGroup,
+      selectAllCameras,
+      deselectAllCameras,
       clearAllCameras,
       displayedCams,
       tileStatuses,
@@ -524,7 +423,7 @@ export function LiveStreamingProvider({ children }) {
       deleteLayout,
     }),
     [
-      cameraGroups,
+      cameraList,
       baseStreams,
       cameraMeta,
       cameraStreams,
@@ -535,14 +434,11 @@ export function LiveStreamingProvider({ children }) {
       grid,
       gridCols,
       gridRows,
-      openGroups,
-      toggleGroup,
       toggleCamera,
       toggleAudio,
-      reorderCamera,
       placeCameraAtIndex,
-      selectAllInGroup,
-      deselectAllInGroup,
+      selectAllCameras,
+      deselectAllCameras,
       clearAllCameras,
       displayedCams,
       tileStatuses,
@@ -584,4 +480,38 @@ export function useLiveStreaming() {
   const ctx = useContext(LiveStreamingContext);
   if (!ctx) throw new Error("useLiveStreaming must be used within LiveStreamingProvider");
   return ctx;
+}
+
+// Convert backend response (flat list or station tree) to flat { cameras, meta }
+function treeToFlat(resp) {
+  const cameras = [];
+  const meta = {};
+
+  if (Array.isArray(resp)) {
+    resp.forEach((cam) => {
+      cameras.push(cam.name);
+      meta[cam.name] = {
+        id: cam.camera_id,
+        status: cam.online ? "online" : "offline",
+        cameraType: cam.camera_type,
+      };
+    });
+    return { cameras, meta };
+  }
+
+  const stations = resp?.stations || [];
+  stations.forEach((st) => {
+    (st.sites || []).forEach((site) => {
+      (site.cameras || []).forEach((cam) => {
+        cameras.push(cam.name);
+        meta[cam.name] = {
+          id: cam.camera_id,
+          status: cam.online ? "online" : "offline",
+          cameraType: cam.camera_type,
+        };
+      });
+    });
+  });
+
+  return { cameras, meta };
 }

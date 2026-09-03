@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Boolean, DateTime, Integer, String, func
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -15,6 +15,14 @@ class Camera(Base):
     """
 
     __tablename__ = "cameras"
+    __table_args__ = (
+        # An NVR channel is identified by its recorder plus its channel number,
+        # never by its label. Re-running discovery after a rename must update
+        # the existing row instead of inserting a second copy of every channel.
+        # Standalone cameras leave both columns NULL, and SQL treats NULLs as
+        # distinct, so any number of them can coexist.
+        Index("uq_camera_nvr_channel", "nvr_id", "channel", unique=True),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     name: Mapped[str] = mapped_column(String(120), nullable=False)
@@ -23,6 +31,14 @@ class Camera(Base):
     rtsp_port: Mapped[int] = mapped_column(Integer, nullable=False, default=554, server_default="554")
     username: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
     password: Mapped[str] = mapped_column(String(255), nullable=False, default="", server_default="")
+
+    # Owning NVR and 1-based channel number, both NULL for standalone cameras.
+    # Two NVRs can share one public IP behind different forwarded ports, so the
+    # endpoint alone is not an identity - this link is.
+    nvr_id: Mapped[int | None] = mapped_column(
+        Integer, ForeignKey("nvrs.id", ondelete="CASCADE"), nullable=True, index=True
+    )
+    channel: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     # Device info fetched over ONVIF when the camera is added.
     manufacturer: Mapped[str | None] = mapped_column(String(255), nullable=True)
@@ -39,12 +55,6 @@ class Camera(Base):
     stream_state: Mapped[str] = mapped_column(String(16), nullable=False, default="idle", server_default="idle")
 
     # GPS coordinates for map display.
-    # Organization placement — which station/site this camera belongs to.
-    station_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    station_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    site_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    site_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-
     latitude: Mapped[float | None] = mapped_column(nullable=True)
     longitude: Mapped[float | None] = mapped_column(nullable=True)
 

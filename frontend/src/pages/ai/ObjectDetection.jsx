@@ -176,7 +176,7 @@ function CheckboxGroup({ label, options, selected, onChange }) {
 }
 
 function ObjectDetection() {
-  const { cameraGroups, cameraStreams, openGroups, toggleGroup } =
+  const { cameraList, cameraStreams, openGroups, toggleGroup } =
     useLiveStreaming();
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -280,7 +280,7 @@ function ObjectDetection() {
         isMobile={isMobile}
         showSidebar={showSidebar}
         setShowSidebar={setShowSidebar}
-        cameraGroups={cameraGroups}
+        cameraList={cameraList}
         openGroups={openGroups}
         toggleGroup={toggleGroup}
         onSelectCamera={handleSelectCamera}

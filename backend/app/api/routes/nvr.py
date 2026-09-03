@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -25,6 +26,9 @@ BRAND_RTSP_PATHS = {
     "default": "/stream1",
 }
 
+# Max length of Camera.name / NVR.name in the schema.
+NAME_MAX = 120
+
 
 def _get_rtsp_path(brand: str | None, channel: int) -> str:
     """Get the RTSP path for a given brand and channel number."""
@@ -33,8 +37,142 @@ def _get_rtsp_path(brand: str | None, channel: int) -> str:
     return path_template.format(ch=channel)
 
 
+def channel_name(device_name: str, channel: int) -> str:
+    """Build an NVR channel label: ``<Device Name>-Ch-<Number>``.
+
+    The device name is the operator-supplied name of the recorder, NOT its
+    brand. Two recorders behind one public IP on different forwarded ports are
+    different devices and must produce different labels.
+    """
+    suffix = f"-Ch-{channel}"
+    return f"{device_name[: NAME_MAX - len(suffix)]}{suffix}"
+
+
+def _legacy_channel_names(nvr: NVR, channel: int) -> set[str]:
+    """Labels a channel row could carry from before it had a nvr_id/channel.
+
+    Used once, to adopt pre-existing rows instead of inserting duplicates
+    alongside them.
+    """
+    labels = {nvr.name, nvr.brand_name, "NVR"}
+    return {f"{label} - CH{channel}" for label in labels if label} | {
+        channel_name(label, channel) for label in labels if label
+    }
+
+
+def _find_channel_row(db: Session, nvr: NVR, channel: int) -> Camera | None:
+    """Locate the row for this NVR's channel, adopting legacy rows if needed.
+
+    Identity is (nvr_id, channel) - deliberately NOT the name, because keying
+    on a label means every rename inserts a fresh copy of every channel.
+    """
+    cam = db.scalars(
+        select(Camera).where(Camera.nvr_id == nvr.id, Camera.channel == channel)
+    ).first()
+    if cam is not None:
+        return cam
+
+    return db.scalars(
+        select(Camera)
+        .where(
+            Camera.nvr_id.is_(None),
+            Camera.ip_address == nvr.ip_address,
+            Camera.onvif_port == nvr.port,
+            Camera.rtsp_port == nvr.rtsp_port,
+            Camera.name.in_(_legacy_channel_names(nvr, channel)),
+        )
+        .order_by(Camera.id)
+    ).first()
+
+
+def _assert_name_available(db: Session, name: str, nvr_id: int | None) -> None:
+    """Reject a device name already used by a *different* recorder.
+
+    Without this, two NVRs sharing a name regenerate identical channel labels
+    and the device table fills with indistinguishable rows.
+    """
+    stmt = select(NVR).where(NVR.name == name)
+    if nvr_id is not None:
+        stmt = stmt.where(NVR.id != nvr_id)
+    clash = db.scalars(stmt).first()
+    if clash is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"Device name '{name}' is already used by the NVR at "
+                f"{clash.ip_address}:{clash.port} (RTSP {clash.rtsp_port}). "
+                "Give each recorder a unique device name."
+            ),
+        )
+
+
+async def _sync_channels(
+    db: Session,
+    nvr: NVR,
+    *,
+    brand: str | None,
+    start_channel: int,
+    num_channels: int,
+    is_nvr: bool = True,
+) -> list[dict]:
+    """Create-or-update this NVR's channel rows and publish them to MediaMTX.
+
+    Idempotent: running it again after a rename or a port change updates the
+    existing rows in place rather than inserting a second set.
+    """
+    brand_hint = brand or nvr.brand_name
+    cameras: list[dict] = []
+
+    for ch in range(start_channel, start_channel + num_channels):
+        rtsp_path = _get_rtsp_path(brand_hint, ch)
+        rtsp_url = build_rtsp_url(
+            nvr.ip_address, nvr.rtsp_port, rtsp_path, nvr.username, nvr.password
+        )
+        # A lone camera is not a channel of anything, so it keeps its own name.
+        cam_name = channel_name(nvr.name, ch) if is_nvr else nvr.name[:NAME_MAX]
+
+        cam = _find_channel_row(db, nvr, ch)
+        if cam is None:
+            cam = Camera(nvr_id=nvr.id, channel=ch)
+            db.add(cam)
+
+        cam.nvr_id = nvr.id
+        cam.channel = ch
+        cam.name = cam_name
+        cam.ip_address = nvr.ip_address
+        cam.onvif_port = nvr.port
+        cam.rtsp_port = nvr.rtsp_port
+        cam.username = nvr.username
+        cam.password = nvr.password
+        cam.rtsp_path = rtsp_path
+        cam.rtsp_source = "brand_convention"
+        db.flush()
+
+        ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(cam.id), rtsp_url)
+        cam.stream_state = "registered" if ok else "error"
+        db.flush()
+
+        cameras.append({"id": cam.id, "name": cam.name, "channel": ch})
+
+    return cameras
+
+
+def _owned_cameras_stmt(nvr: NVR):
+    """Cameras belonging to this NVR, including not-yet-adopted legacy rows."""
+    return select(Camera).where(
+        (Camera.nvr_id == nvr.id)
+        | (
+            Camera.nvr_id.is_(None)
+            & (Camera.ip_address == nvr.ip_address)
+            & (Camera.onvif_port == nvr.port)
+            & (Camera.rtsp_port == nvr.rtsp_port)
+        )
+    )
+
+
 class DiscoverResponse(BaseModel):
     nvr_id: int
+    nvr_name: str
     method: str
     channels_probed: int
     cameras_registered: int
@@ -51,6 +189,7 @@ def list_nvrs(db: Session = Depends(get_db)) -> list[NVR]:
 
 @router.post("", response_model=NVRRead, status_code=201)
 def create_nvr(payload: NVRCreate, db: Session = Depends(get_db)) -> NVR:
+    _assert_name_available(db, payload.name, None)
     nvr = NVR(
         name=payload.name,
         ip_address=payload.ip_address,
@@ -63,7 +202,17 @@ def create_nvr(payload: NVRCreate, db: Session = Depends(get_db)) -> NVR:
         manufacturer=payload.manufacturer or payload.brand_name,
     )
     db.add(nvr)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"An NVR is already registered at {payload.ip_address}:{payload.port} "
+                f"(RTSP {payload.rtsp_port})."
+            ),
+        )
     db.refresh(nvr)
     return nvr
 
@@ -75,10 +224,7 @@ def create_nvr(payload: NVRCreate, db: Session = Depends(get_db)) -> NVR:
 async def discover_cameras_id_less(
     nvr_body: NVRDiscoverRequest,
     method: str = Query("AUTO"),
-    max_channels: int = Query(16),
-    zone: str = Query(None),
-    station_id: int = Query(None),
-    site_id: int = Query(None),
+    max_channels: int = Query(16, ge=1, le=128),
     preview: bool = Query(False),
     rewrite_rtsp_port: bool = Query(False),
     brand: str = Query(None),
@@ -94,7 +240,9 @@ async def discover_cameras_id_less(
     username = nvr_body.username or ""
     password = nvr_body.plain_password or ""
 
-    # Find or create the NVR (unique per IP + HTTP port + RTSP port)
+    # A recorder is identified by its full endpoint. Several NVRs can sit
+    # behind one public IP, distinguished only by their forwarded ports, so the
+    # IP alone must never be treated as the identity.
     nvr = db.scalars(
         select(NVR).where(
             NVR.ip_address == ip,
@@ -103,9 +251,32 @@ async def discover_cameras_id_less(
         )
     ).first()
 
+    # Prefer the operator's Device Name; fall back to the stored one, and only
+    # then to the brand. The brand is shared by every unit of that make, so it
+    # cannot serve as a name.
+    device_name = (
+        nvr_body.name
+        or (nvr.name if nvr is not None else None)
+        or nvr_body.brand_name
+        or "NVR"
+    )[:NAME_MAX]
+    _assert_name_available(db, device_name, nvr.id if nvr is not None else None)
+
+    if preview:
+        # Dry run: validate and report, but register nothing. nvr_id is 0 when
+        # this endpoint is new and no row exists yet.
+        return DiscoverResponse(
+            nvr_id=nvr.id if nvr is not None else 0,
+            nvr_name=device_name,
+            method=method,
+            channels_probed=0,
+            cameras_registered=0,
+            cameras=[],
+        )
+
     if nvr is None:
         nvr = NVR(
-            name=nvr_body.brand_name or "NVR",
+            name=device_name,
             ip_address=ip,
             port=onvif_port,
             rtsp_port=rtsp_port,
@@ -113,10 +284,12 @@ async def discover_cameras_id_less(
             password=password,
             no_of_channels=nvr_body.no_of_channels,
             brand_name=nvr_body.brand_name,
+            manufacturer=nvr_body.brand_name,
         )
         db.add(nvr)
         db.flush()
     else:
+        nvr.name = device_name
         nvr.username = username or nvr.username
         nvr.password = password or nvr.password
         nvr.rtsp_port = rtsp_port
@@ -125,70 +298,22 @@ async def discover_cameras_id_less(
         if nvr_body.brand_name:
             nvr.brand_name = nvr_body.brand_name
 
-    if preview:
-        # Preview mode: just return the NVR info without registering channels
-        db.flush()
-        return DiscoverResponse(
-            nvr_id=nvr.id,
-            method=method,
-            channels_probed=0,
-            cameras_registered=0,
-            cameras=[],
-        )
-
-    # Register channels directly based on no_of_channels
-    num_channels = nvr.no_of_channels or max_channels
-    cameras_found = []
-
-    for ch in range(1, num_channels + 1):
-        rtsp_path = _get_rtsp_path(brand or nvr_body.brand_name, ch)
-        rtsp_url = build_rtsp_url(ip, rtsp_port, rtsp_path, username, password)
-
-        cam_name = f"{nvr.name} - CH{ch}"
-        existing = db.scalars(
-            select(Camera).where(
-                Camera.ip_address == ip,
-                Camera.onvif_port == onvif_port,
-                Camera.rtsp_port == rtsp_port,
-                Camera.name == cam_name,
-            )
-        ).first()
-
-        if existing:
-            existing.rtsp_path = rtsp_path
-            existing.rtsp_source = "brand_convention"
-            cam = existing
-        else:
-            cam = Camera(
-                name=cam_name,
-                ip_address=ip,
-                onvif_port=onvif_port,
-                rtsp_port=rtsp_port,
-                username=username,
-                password=password,
-                rtsp_path=rtsp_path,
-                rtsp_source="brand_convention",
-                station_id=station_id,
-                site_id=site_id,
-                station_name=zone,
-            )
-            db.add(cam)
-
-        db.flush()
-        await mediamtx.mediamtx.add_path(mediamtx.path_name(cam.id), rtsp_url)
-        cam.stream_state = "registered"
-        db.flush()
-
-        cameras_found.append({
-            "id": cam.id,
-            "name": cam.name,
-            "channel": ch,
-        })
-
+    num_channels = (
+        (nvr.no_of_channels or max_channels) if nvr_body.is_nvr else 1
+    )
+    cameras_found = await _sync_channels(
+        db,
+        nvr,
+        brand=brand,
+        start_channel=1,
+        num_channels=num_channels,
+        is_nvr=nvr_body.is_nvr,
+    )
     db.commit()
 
     return DiscoverResponse(
         nvr_id=nvr.id,
+        nvr_name=nvr.name,
         method=method,
         channels_probed=num_channels,
         cameras_registered=len(cameras_found),
@@ -218,8 +343,21 @@ def update_nvr(nvr_id: int, payload: NVRUpdate, db: Session = Depends(get_db)) -
     if "password" in changes and not password_provided:
         changes.pop("password")
 
+    new_name = changes.get("name")
+    if new_name:
+        new_name = new_name.strip()[:NAME_MAX]
+        changes["name"] = new_name
+        _assert_name_available(db, new_name, nvr.id)
+
     for field, value in changes.items():
         setattr(nvr, field, value)
+
+    # Channel labels are derived from the device name, so a rename has to
+    # propagate. Otherwise the old name lingers on every channel row.
+    if new_name:
+        for cam in db.scalars(_owned_cameras_stmt(nvr)).all():
+            if cam.channel is not None:
+                cam.name = channel_name(new_name, cam.channel)
 
     db.commit()
     db.refresh(nvr)
@@ -227,19 +365,13 @@ def update_nvr(nvr_id: int, payload: NVRUpdate, db: Session = Depends(get_db)) -
 
 
 @router.delete("/{nvr_id}", status_code=204)
-def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
+async def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
     nvr = db.get(NVR, nvr_id)
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
-    # Also delete cameras registered under this NVR (matched by IP + ports)
-    cameras = db.scalars(
-        select(Camera).where(
-            Camera.ip_address == nvr.ip_address,
-            Camera.onvif_port == nvr.port,
-            Camera.rtsp_port == nvr.rtsp_port,
-        )
-    ).all()
-    for cam in cameras:
+    # Also delete the cameras registered under this NVR.
+    for cam in db.scalars(_owned_cameras_stmt(nvr)).all():
+        await mediamtx.mediamtx.remove_path(mediamtx.path_name(cam.id))
         db.delete(cam)
     db.delete(nvr)
     db.commit()
@@ -247,22 +379,23 @@ def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
 
 @router.get("/{nvr_id}/channels", response_model=list[dict])
 def list_nvr_channels(nvr_id: int, db: Session = Depends(get_db)) -> list[dict]:
-    """List cameras (channels) registered under this NVR (matched by IP + ports)."""
+    """List cameras (channels) registered under this NVR."""
     nvr = db.get(NVR, nvr_id)
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
+    # Order by channel number, not by name: alphabetical sorting puts CH10
+    # between CH1 and CH2.
     cameras = db.scalars(
-        select(Camera).where(
-            Camera.ip_address == nvr.ip_address,
-            Camera.onvif_port == nvr.port,
-            Camera.rtsp_port == nvr.rtsp_port,
-        ).order_by(Camera.name)
+        _owned_cameras_stmt(nvr).order_by(Camera.channel, Camera.id)
     ).all()
     return [
         {
             "id": c.id,
             "name": c.name,
+            "channel": c.channel,
             "ip_address": c.ip_address,
+            "onvif_port": c.onvif_port,
+            "rtsp_port": c.rtsp_port,
             "rtsp_path": c.rtsp_path,
             "stream_state": c.stream_state,
             "manufacturer": c.manufacturer,
@@ -295,12 +428,9 @@ def update_nvr_credentials(
 async def discover_nvr_cameras(
     nvr_id: int,
     method: str = Query("AUTO"),
-    max_channels: int = Query(16),
-    start_channel: int = Query(1),
-    zone: str = Query(None),
+    max_channels: int = Query(16, ge=1, le=128),
+    start_channel: int = Query(1, ge=1),
     brand: str = Query(None),
-    station_id: int = Query(None),
-    site_id: int = Query(None),
     db: Session = Depends(get_db),
 ) -> DiscoverResponse:
     """Register camera channels on an already-registered NVR.
@@ -311,64 +441,19 @@ async def discover_nvr_cameras(
     if nvr is None:
         raise HTTPException(status_code=404, detail="NVR not found")
 
-    onvif_port = nvr.port or 80
-    rtsp_port = nvr.rtsp_port or 554
     num_channels = nvr.no_of_channels or max_channels
-    cameras_found = []
-
-    for ch in range(start_channel, start_channel + num_channels):
-        rtsp_path = _get_rtsp_path(brand or nvr.brand_name, ch)
-        rtsp_url = build_rtsp_url(
-            nvr.ip_address, rtsp_port, rtsp_path, nvr.username, nvr.password
-        )
-
-        cam_name = f"{nvr.name} - CH{ch}"
-        existing = db.scalars(
-            select(Camera).where(
-                Camera.ip_address == nvr.ip_address,
-                Camera.onvif_port == nvr.port,
-                Camera.rtsp_port == nvr.rtsp_port,
-                Camera.name == cam_name,
-            )
-        ).first()
-
-        if existing:
-            existing.rtsp_path = rtsp_path
-            existing.rtsp_source = "brand_convention"
-            cam = existing
-        else:
-            cam = Camera(
-                name=cam_name,
-                ip_address=nvr.ip_address,
-                onvif_port=onvif_port,
-                rtsp_port=rtsp_port,
-                username=nvr.username,
-                password=nvr.password,
-                rtsp_path=rtsp_path,
-                rtsp_source="brand_convention",
-                station_id=station_id,
-                site_id=site_id,
-                station_name=zone,
-            )
-            db.add(cam)
-
-        db.flush()
-        await mediamtx.mediamtx.add_path(
-            mediamtx.path_name(cam.id), rtsp_url
-        )
-        cam.stream_state = "registered"
-        db.flush()
-
-        cameras_found.append({
-            "id": cam.id,
-            "name": cam.name,
-            "channel": ch,
-        })
-
+    cameras_found = await _sync_channels(
+        db,
+        nvr,
+        brand=brand,
+        start_channel=start_channel,
+        num_channels=num_channels,
+    )
     db.commit()
 
     return DiscoverResponse(
         nvr_id=nvr.id,
+        nvr_name=nvr.name,
         method=method,
         channels_probed=num_channels,
         cameras_registered=len(cameras_found),

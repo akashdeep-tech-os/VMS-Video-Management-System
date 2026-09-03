@@ -14,52 +14,7 @@ const DEFAULT_HEADER = {
   theme: "delhi-police",
 };
 
-function getDeptHeaderConfig() {
-  try {
-    // Use the active department for header (set only by Switch Department)
-    const raw = localStorage.getItem("vms_active_department");
-    if (!raw) return null;
-    const dept = JSON.parse(raw);
-    if (!dept?.theme) return null;
-    const theme = { ...dept.theme };
-
-    // Read per-department festival configs to find active festival media
-    if (theme.headerMode === "festival") {
-      const deptFestKey = `vms_festival_configs_${dept.id}`;
-      try {
-        const configs = JSON.parse(localStorage.getItem(deptFestKey) || "[]");
-        const active = configs.find((f) => f.isActive);
-        if (active) {
-          let videoUrl = active.videoUrl || "";
-          let bannerUrl = active.bannerUrl || "";
-          if (active.sharedFromDeptId && active.sharedFestivalId) {
-            try {
-              const sourceKey = `vms_festival_configs_${active.sharedFromDeptId}`;
-              const sourceConfigs = JSON.parse(
-                localStorage.getItem(sourceKey) || "[]",
-              );
-              const source = sourceConfigs.find(
-                (f) => f.id === active.sharedFestivalId,
-              );
-              if (source) {
-                videoUrl = source.videoUrl || "";
-                bannerUrl = source.bannerUrl || "";
-              }
-            } catch {}
-          }
-          theme.festivalVideo = active.mediaType === "video" ? videoUrl : "";
-          theme.festivalBanner = active.mediaType === "banner" ? bannerUrl : "";
-        }
-      } catch {}
-    }
-
-    return theme;
-  } catch {
-    return null;
-  }
-}
-
-function getGlobalHeaderConfig() {
+function getHeaderConfig() {
   return { ...DEFAULT_HEADER };
 }
 
@@ -70,34 +25,7 @@ function Header({ onMenuClick }) {
   const prevConfigRef = useRef("");
 
   const readConfig = useCallback(() => {
-    const deptConfig = getDeptHeaderConfig();
-    const globalConfig = getGlobalHeaderConfig();
-
-    if (deptConfig) {
-      const isFestival = deptConfig.headerMode === "festival";
-      const isBackground = deptConfig.headerMode === "background";
-      return {
-        title: deptConfig.headerName || DEFAULT_HEADER.title,
-        titleColor: deptConfig.headerNameColor || "",
-        subtitle: deptConfig.subtitle || DEFAULT_HEADER.subtitle,
-        subtitleColor: deptConfig.subtitleColor || "",
-        logo: deptConfig.logo || DEFAULT_HEADER.logo,
-        banner: isFestival
-          ? deptConfig.festivalBanner || ""
-          : isBackground
-            ? deptConfig.backgroundBanner || ""
-            : deptConfig.banner || DEFAULT_HEADER.banner,
-        video: isFestival
-          ? deptConfig.festivalVideo || ""
-          : isBackground
-            ? deptConfig.backgroundVideo || ""
-            : DEFAULT_HEADER.video,
-        mode: isFestival ? "festival" : isBackground ? "background" : "normal",
-        theme: globalConfig.theme,
-      };
-    }
-
-    return globalConfig;
+    return getHeaderConfig();
   }, []);
 
   const [headerConfig, setHeaderConfig] = useState(readConfig);
@@ -114,11 +42,7 @@ function Header({ onMenuClick }) {
   // Re-read config on localStorage changes (from Settings page saves)
   useEffect(() => {
     const handleStorage = (e) => {
-      if (
-        e.key === "vms_active_department" ||
-        e.key?.startsWith("vms_header_") ||
-        e.key?.startsWith("vms_festival_configs_")
-      ) {
+      if (e.key?.startsWith("vms_header_")) {
         setHeaderConfig(readConfig());
       }
     };

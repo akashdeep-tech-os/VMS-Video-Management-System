@@ -141,7 +141,7 @@ function NumberField({ label, value, min, max, onChange, suffix }) {
 }
 
 function FaceRecognition() {
-  const { cameraGroups, cameraStreams, openGroups, toggleGroup } =
+  const { cameraList, cameraStreams, openGroups, toggleGroup } =
     useLiveStreaming();
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -262,7 +262,7 @@ function FaceRecognition() {
         isMobile={isMobile}
         showSidebar={showSidebar}
         setShowSidebar={setShowSidebar}
-        cameraGroups={cameraGroups}
+        cameraList={cameraList}
         openGroups={openGroups}
         toggleGroup={toggleGroup}
         onSelectCamera={handleSelectCamera}

@@ -56,7 +56,8 @@ const REWIND_SPEEDS = [-1, -2, -4, -8];
 export function PlaybackProvider({ children }) {
   // Camera tree the user may play back (PLAYBACK_VIEW right), loaded from the
   // backend per user-site-right mapping. Empty until the fetch resolves.
-  const [cameraGroups, setCameraGroups] = useState([]);
+  // Flat list of camera names (replaces the old cameraGroups tree)
+  const [cameraList, setCameraList] = useState([]);
   const [cameraMeta, setCameraMeta] = useState({});
 
   // Camera selection
@@ -126,7 +127,7 @@ export function PlaybackProvider({ children }) {
       try {
         const tree = await loadAccessibleCameras(RIGHT_PLAYBACK);
         if (cancelled || !tree) return;
-        setCameraGroups(tree.groups);
+        setCameraList(tree.cameras || []);
         setCameraMeta(tree.meta);
       } catch (err) {
         console.error("Failed to load playback cameras:", err);
@@ -504,8 +505,8 @@ export function PlaybackProvider({ children }) {
   }, [isPlaying, isRewinding, playbackSpeed, streamUrl, playbackLoading]);
 
   const value = useMemo(() => ({
-    // Camera tree (per user-site-right mapping)
-    cameraGroups,
+    // Camera list (flat array of camera names)
+    cameraList,
     cameraMeta,
 
     // Camera/search
@@ -599,7 +600,7 @@ export function PlaybackProvider({ children }) {
     PLAYBACK_SPEEDS,
     REWIND_SPEEDS,
   }), [
-    cameraGroups, cameraMeta,
+    cameraList, cameraMeta,
     selectedCameras, searchDate, searchStartTime, searchEndTime,
     searchStartPeriod, searchEndPeriod, hasSearched, recordings,
     streamUrl, playbackLoading, activePath,

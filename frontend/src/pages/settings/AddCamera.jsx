@@ -15,9 +15,11 @@ function mapCamera(cam) {
     id: cam.id,
     name: cam.name,
     ip: cam.ip_address || "—",
-    location: cam.station_name || "—",
-    group: cam.station_name || "Ungrouped",
-    subGroup: cam.site_name || "—",
+    // Which recorder this row belongs to, and which channel of it. Needed
+    // because one public IP can front several NVRs on different ports, so the
+    // IP is not enough to tell them apart.
+    nvrId: cam.nvr_id ?? null,
+    channel: cam.channel ?? null,
     status: cam.active === false ? "offline" : cam.healthy || cam.stream_state === "registered" ? "online" : "offline",
     cameraType: cam.camera_type || "—",
     visible: cam.active !== false,
@@ -27,10 +29,9 @@ function mapCamera(cam) {
 function Addcamera({ onBack }) {
   const [status, setStatus] = useState("all");
   const [search, setSearch] = useState("");
-  const [group, setGroup] = useState("all");
   const [selectedIds, setSelectedIds] = useState([]);
   const [cameras, setCameras] = useState([]);
-  const [nvrIps, setNvrIps] = useState(new Set());
+  const [nvrIds, setNvrIds] = useState(new Set());
   const [nvrMap, setNvrMap] = useState({});
 
   const [showModal, setShowModal] = useState(false);
@@ -40,8 +41,6 @@ function Addcamera({ onBack }) {
 
   const { setIsPageBlurred } = useOutletContext() || {};
   const { refreshCameras } = useLiveStreaming();
-
-  const groups = [...new Set(cameras.map((cam) => cam.group).filter(Boolean))];
 
   const loadCameras = useCallback(async () => {
     setIsRefreshing(true);
@@ -61,14 +60,14 @@ function Addcamera({ onBack }) {
     loadCameras();
   }, [loadCameras]);
 
-  // Load NVR list to identify which cameras are NVRs
+  // Load NVR list so channel rows can be traced back to their recorder.
+  // Keyed by id, never by ip_address: several NVRs can share one public IP.
   useEffect(() => {
     nvrService.list().then((list) => {
       if (Array.isArray(list)) {
-        const ips = new Set(list.map((n) => n.ip_address));
         const map = {};
-        list.forEach((n) => { map[n.ip_address] = n; });
-        setNvrIps(ips);
+        list.forEach((n) => { map[n.id] = n; });
+        setNvrIds(new Set(list.map((n) => n.id)));
         setNvrMap(map);
       }
     }).catch(() => {});
@@ -86,7 +85,7 @@ function Addcamera({ onBack }) {
   };
 
   const handleSyncChannels = async (camera) => {
-    const nvr = nvrMap[camera.ip_address || camera.ip];
+    const nvr = nvrMap[camera.nvrId];
     if (!nvr) return;
     try {
       await nvrService.discoverCameras(nvr.id, { maxChannels: nvr.no_of_channels || 16 });
@@ -169,13 +168,10 @@ function Addcamera({ onBack }) {
 
   const filteredCameras = cameras.filter((cam) => {
     const matchStatus = status === "all" || cam.status === status;
-    const matchGroup = group === "all" || cam.group === group;
     const matchSearch =
       cam.name.toLowerCase().includes(search.toLowerCase()) ||
-      (cam.location &&
-        cam.location.toLowerCase().includes(search.toLowerCase())) ||
       cam.ip.includes(search);
-    return matchStatus && matchGroup && matchSearch;
+    return matchStatus && matchSearch;
   });
 
   const detailedCameraData = cameras.find(
@@ -190,9 +186,6 @@ function Addcamera({ onBack }) {
           setSearch={setSearch}
           status={status}
           setStatus={setStatus}
-          group={group}
-          setGroup={setGroup}
-          groups={groups}
           selectedIds={selectedIds}
           handleBulkDelete={handleBulkDelete}
           onAddClick={() => setShowModal(true)}
@@ -203,9 +196,9 @@ function Addcamera({ onBack }) {
         />
       </div>
 
-      <div className="flex-1 min-h-0 h-0 flex flex-col p-3 overflow-hidden">
+      <div className="flex-1 min-h-0 flex flex-col overflow-hidden mx-2 my-2">
         <div
-          className={`flex flex-col transition-opacity duration-200 ${isRefreshing ? "opacity-40 pointer-events-none" : ""}`}
+          className={`h-auto min-h-0 flex flex-col transition-opacity duration-200 ${isRefreshing ? "opacity-40 pointer-events-none" : ""}`}
         >
           <CameraTable
             cameras={filteredCameras}
@@ -217,7 +210,7 @@ function Addcamera({ onBack }) {
             toggleSelectAll={toggleSelectAll}
             onRowDetailsClick={(cam) => setActiveDetailCamera(cam)}
             activeDetailCamera={activeDetailCamera}
-            nvrIps={nvrIps}
+            nvrIds={nvrIds}
             onSyncChannels={handleSyncChannels}
           />
         </div>

@@ -18,10 +18,7 @@ class CameraBase(BaseModel):
 
 
 class CameraCreate(CameraBase):
-    station_id: int | None = None
-    station_name: str | None = None
-    site_id: int | None = None
-    site_name: str | None = None
+    pass
 
 
 class CameraCreateRtsp(BaseModel):
@@ -31,10 +28,6 @@ class CameraCreateRtsp(BaseModel):
     rtsp_url: str = Field(min_length=1, max_length=500)
     latitude: float | None = None
     longitude: float | None = None
-    station_id: int | None = None
-    station_name: str | None = None
-    site_id: int | None = None
-    site_name: str | None = None
 
 
 class CameraUpdate(BaseModel):
@@ -59,6 +52,8 @@ class CameraRead(CameraBase):
     model_config = ConfigDict(from_attributes=True)
 
     id: int
+    nvr_id: int | None = None
+    channel: int | None = None
     manufacturer: str | None = None
     model: str | None = None
     firmware: str | None = None
@@ -67,10 +62,6 @@ class CameraRead(CameraBase):
     rtsp_source: str = "none"
     stream_state: str = "idle"
     enabled: bool = True
-    station_id: int | None = None
-    station_name: str | None = None
-    site_id: int | None = None
-    site_name: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     created_at: datetime

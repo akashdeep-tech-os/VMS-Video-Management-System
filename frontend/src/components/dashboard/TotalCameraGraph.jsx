@@ -9,19 +9,6 @@ function TotalCameraGraph({ data = [], selectedDistrict, onDistrictClick }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
   const [tooltipPos, setTooltipPos] = useState(null);
 
-  const groupLabel = useMemo(() => {
-    const saved = localStorage.getItem("vms_departments");
-    const departments = saved ? JSON.parse(saved) : [];
-    const config =
-      departments.length > 0
-        ? {
-            departmentName: departments[0].name,
-            groupName: departments[0].groupName,
-          }
-        : null;
-    return config?.groupName || "Group";
-  }, []);
-
   useEffect(() => {
     if (!containerRef.current) return;
     const observer = new ResizeObserver((entries) => {
@@ -98,7 +85,7 @@ function TotalCameraGraph({ data = [], selectedDistrict, onDistrictClick }) {
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-xl sm:rounded-2xl shadow-sm hover:shadow-lg hover:shadow-[var(--primary-color)]/5 transition-all duration-300 p-3 sm:p-4 h-full flex flex-col cursor-pointer hover:border-[var(--primary-color)]/40 glass-lift card-glow-hover">
       <div className="relative mb-2 shrink-0">
         <h4 className="text-[13px] sm:text-[13px] uppercase font-semibold text-[var(--text-dark)]">
-          Total Cameras ({groupLabel})
+          Total Cameras
         </h4>
         {selectedDistrict && (
           <button

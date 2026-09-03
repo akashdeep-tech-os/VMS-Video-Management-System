@@ -32,11 +32,9 @@ const DEFAULT_CONFIG = {
   festivalName: "",
 };
 
-function HeaderSettings({ department, onUpdateDepartment, onBack }) {
-  const deptTheme = department?.theme || {};
+function HeaderSettings({ onBack }) {
   const [config, setConfig] = useState(() => ({
     ...DEFAULT_CONFIG,
-    ...deptTheme,
     headerMode: "background",
   }));
   const [hasChanges, setHasChanges] = useState(false);
@@ -105,12 +103,7 @@ function HeaderSettings({ department, onUpdateDepartment, onBack }) {
   };
 
   const handleSave = () => {
-    const updatedDept = {
-      ...department,
-      theme: { ...config },
-    };
-    onUpdateDepartment(updatedDept);
-    localStorage.setItem("vms_active_department", JSON.stringify(updatedDept));
+    localStorage.setItem("vms_header_config", JSON.stringify(config));
     setHasChanges(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);

@@ -3,22 +3,18 @@ import { useGlassTheme } from "../glass/GlassThemeProvider";
 import BodyHead from "../../components/common/BodyHead";
 import { FaPalette, FaSave, FaUndo, FaArrowLeft } from "react-icons/fa";
 
-const ThemeSettings = ({ department, onUpdateDepartment, onBack }) => {
+const ThemeSettings = ({ onBack }) => {
   const { isGlassTheme } = useGlassTheme();
 
-  const deptTheme = department?.theme || {};
-  const [deptGlassTheme, setDeptGlassTheme] = useState(
-    () => deptTheme.glassTheme ?? isGlassTheme,
-  );
+  const [deptGlassTheme, setDeptGlassTheme] = useState(isGlassTheme);
   const [hasChanges, setHasChanges] = useState(false);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    const deptTheme = department?.theme || {};
-    setDeptGlassTheme(deptTheme.glassTheme ?? isGlassTheme);
+    setDeptGlassTheme(isGlassTheme);
     setHasChanges(false);
     setSaved(false);
-  }, [department?.id]);
+  }, [isGlassTheme]);
 
   const handleToggle = () => {
     const newValue = !deptGlassTheme;
@@ -27,19 +23,10 @@ const ThemeSettings = ({ department, onUpdateDepartment, onBack }) => {
     setSaved(false);
   };
 
-  const [initialGlassTheme] = useState(() => deptTheme.glassTheme ?? true);
+  const [initialGlassTheme] = useState(() => isGlassTheme);
 
   const handleSave = () => {
-    const updatedDept = {
-      ...department,
-      theme: {
-        ...(department?.theme || {}),
-        glassTheme: deptGlassTheme,
-      },
-    };
-    onUpdateDepartment(updatedDept);
-    // Also update active department so GlassThemeProvider picks it up
-    localStorage.setItem("vms_active_department", JSON.stringify(updatedDept));
+    localStorage.setItem("vms_glass_theme", JSON.stringify(deptGlassTheme));
     setHasChanges(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);

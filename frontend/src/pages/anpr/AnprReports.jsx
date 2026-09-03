@@ -566,19 +566,6 @@ function AnprReports() {
     setMapModalOpen(false);
   };
 
-  const departmentConfig = useMemo(() => {
-    const saved = localStorage.getItem("vms_departments");
-    const departments = saved ? JSON.parse(saved) : [];
-    return departments.length > 0
-      ? {
-          departmentName: departments[0].name,
-          groupName: departments[0].groupName,
-        }
-      : null;
-  }, []);
-
-  const groupLabel = departmentConfig?.groupName || "Group";
-
   // ANPR cameras data - currently no backend endpoint, using empty array
   const anprCameras = useMemo(() => [], []);
 
@@ -969,7 +956,7 @@ function AnprReports() {
                           <th className="py-1.5 px-3 border-r border-b-2 border-[var(--border-color)]">
                             <div className="flex items-center gap-2">
                               <span className="text-[13px] font-semibold text-[var(--text-dark)] uppercase tracking-wide whitespace-nowrap">
-                                {groupLabel.toUpperCase()}
+                                ZONE
                               </span>
 
                               <select

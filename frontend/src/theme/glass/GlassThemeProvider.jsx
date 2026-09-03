@@ -3,31 +3,12 @@ import "./styles.css";
 
 const GlassThemeContext = createContext(null);
 
-function getDeptTheme() {
-  try {
-    // Use the active department for theme (set only by Switch Department)
-    const raw = localStorage.getItem("vms_active_department");
-    if (!raw) return null;
-    const dept = JSON.parse(raw);
-    if (!dept?.theme) return null;
-    return dept.theme;
-  } catch {
-    return null;
-  }
-}
-
-function getDeptGlassTheme() {
-  const deptTheme = getDeptTheme();
-  // Only use department theme if glassTheme was explicitly set
-  if (deptTheme && typeof deptTheme.glassTheme === "boolean" && deptTheme.hasOwnProperty("glassTheme")) {
-    return deptTheme.glassTheme;
-  }
-  // No department or no theme set — use global setting, default to false (simple theme)
+function getGlassTheme() {
   return localStorage.getItem("glass_theme") === "true";
 }
 
 export function GlassThemeProvider({ children }) {
-  const [isGlassTheme, setIsGlassTheme] = useState(() => getDeptGlassTheme());
+  const [isGlassTheme, setIsGlassTheme] = useState(() => getGlassTheme());
 
   // Apply glass theme to body
   useEffect(() => {
@@ -38,23 +19,21 @@ export function GlassThemeProvider({ children }) {
     }
   }, [isGlassTheme]);
 
-  // Listen for department changes (from Settings page save or department switch)
+  // Listen for glass theme changes
   useEffect(() => {
-    const checkDeptTheme = () => {
-      const deptGlass = getDeptGlassTheme();
-      setIsGlassTheme(deptGlass);
+    const checkTheme = () => {
+      setIsGlassTheme(getGlassTheme());
     };
 
-    // Poll for same-tab changes (Settings save, department switch) — skip when
-    // the tab is hidden to avoid waking the render cycle on background pages.
+    // Poll for same-tab changes
     const interval = setInterval(() => {
-      if (!document.hidden) checkDeptTheme();
+      if (!document.hidden) checkTheme();
     }, 1000);
 
     // Also listen for cross-tab storage events
     const handleStorage = (e) => {
-      if (e.key === "vms_active_department" || e.key === "vms_departments") {
-        checkDeptTheme();
+      if (e.key === "glass_theme") {
+        checkTheme();
       }
     };
     window.addEventListener("storage", handleStorage);

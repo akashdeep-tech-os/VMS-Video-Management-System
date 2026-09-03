@@ -1,7 +1,7 @@
 """MediaMTX control API client.
 
 Only the endpoints needed for camera management are used (v1.19.3 API):
-- POST   /v3/config/paths/add/{name}     register an RTSP source
+- POST   /v3/config/paths/replace/{name}  register or update an RTSP source
 - DELETE /v3/config/paths/delete/{name}  remove a path
 - GET    /v3/paths/list                  list paths + publishing state
 
@@ -90,14 +90,19 @@ class MediaMTXClient:
         return bool(info) and self._is_publishing(info)
 
     async def add_path(self, name: str, source_url: str) -> bool:
-        """Register an RTSP pull source with MediaMTX.
+        """Register or update an RTSP pull source with MediaMTX.
 
         ``sourceOnDemand`` keeps the source stopped until a viewer connects
         (WHEP), which keeps 100 idle cameras from consuming bandwidth.
+
+        Uses ``replace`` rather than ``add`` because both re-running NVR channel
+        discovery and the startup re-registration sweep hit paths that already
+        exist; ``add`` answers those with 400 "path already exists", which would
+        park every healthy channel in the ``error`` state.
         """
         try:
             response = await self._client.post(
-                f"/v3/config/paths/add/{name}",
+                f"/v3/config/paths/replace/{name}",
                 json={
                     "source": source_url,
                     "sourceOnDemand": True,

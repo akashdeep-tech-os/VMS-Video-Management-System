@@ -21,7 +21,7 @@ export default function LiveStreaming() {
     openGroups,
     toggleAudio,
     placeCameraAtIndex,
-    cameraGroups,
+    cameraList,
     cameraMeta,
     selectedTiles,
     toggleTileSelect,
@@ -179,7 +179,7 @@ export default function LiveStreaming() {
           isMobile={isMobile}
           showSidebar={showSidebar}
           setShowSidebar={setShowSidebar}
-          cameraGroups={cameraGroups}
+          cameraList={cameraList}
           openGroups={openGroups}
           toggleGroup={toggleGroup}
           toggleCamera={toggleCamera}

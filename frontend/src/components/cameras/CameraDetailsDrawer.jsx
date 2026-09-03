@@ -4,17 +4,13 @@ import { IoClose } from "react-icons/io5";
 import {
   FiCpu,
   FiGlobe,
-  FiMapPin,
   FiShield,
   FiCamera,
   FiUser,
-  FiLock,
   FiVideo,
   FiServer,
   FiRadio,
-  FiNavigation,
   FiDatabase,
-  FiLayers,
 } from "react-icons/fi";
 
 function CameraDetailsDrawer({ camera, onClose }) {
@@ -71,17 +67,6 @@ function CameraDetailsDrawer({ camera, onClose }) {
           <div className="space-y-3">
             <DetailRow icon={FiCamera} label="Device Name" value={camera.name} />
             <DetailRow icon={FiCpu} label="Device Type" value={camera.cameraType} />
-          </div>
-        </div>
-
-        {/* Location Section */}
-        <div>
-          <p className="text-[9px] font-bold uppercase tracking-widest text-[var(--text-muted)] mb-3 flex items-center gap-1.5">
-            <FiMapPin size={10} /> Location
-          </p>
-          <div className="space-y-3">
-            <DetailRow icon={FiLayers} label="Group" value={camera.group} />
-            <DetailRow icon={FiMapPin} label="Site / Location" value={camera.subGroup || camera.location} />
           </div>
         </div>
 

@@ -5,20 +5,6 @@ import { MdOutlineVideocamOff } from "react-icons/md";
 import { motion, AnimatePresence } from "framer-motion";
 import { usePlayback } from "../../context/PlaybackContext";
 
-const groupExpand = {
-  hidden: { opacity: 0, height: 0 },
-  visible: {
-    opacity: 1,
-    height: "auto",
-    transition: { duration: 0.24, ease: [0.22, 1, 0.36, 1] },
-  },
-  exit: {
-    opacity: 0,
-    height: 0,
-    transition: { duration: 0.18, ease: [0.4, 0, 1, 1] },
-  },
-};
-
 const itemFade = {
   hidden: { opacity: 0, y: -4 },
   visible: (i = 0) => ({
@@ -30,7 +16,7 @@ const itemFade = {
 
 function LeftPanel({ collapsed, isMobile, onClose }) {
   const {
-    cameraGroups,
+    cameraList,
     selectedCameras,
     setSelectedCameras,
     searchDate,
@@ -48,7 +34,6 @@ function LeftPanel({ collapsed, isMobile, onClose }) {
 
   const [searchTerm, setSearchTerm] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
-  const [openGroups, setOpenGroups] = useState({});
 
   const today = new Date();
   const [calMonth, setCalMonth] = useState(today.getMonth());
@@ -118,34 +103,13 @@ function LeftPanel({ collapsed, isMobile, onClose }) {
     setter(formatted);
   };
 
-  const filteredGroups = useMemo(() => {
-    if (!searchTerm.trim()) return cameraGroups;
+  const filteredCameras = useMemo(() => {
+    if (!searchTerm.trim()) return cameraList || [];
     const lower = searchTerm.toLowerCase();
-    return cameraGroups
-      .map((group) => ({
-        ...group,
-        sites: group.sites
-          .map((site) => ({
-            ...site,
-            cameras: site.cameras.filter((cam) =>
-              cam.toLowerCase().includes(lower),
-            ),
-          }))
-          .filter(
-            (site) =>
-              site.name.toLowerCase().includes(lower) ||
-              site.cameras.length > 0,
-          ),
-      }))
-      .filter(
-        (group) =>
-          group.name.toLowerCase().includes(lower) || group.sites.length > 0,
-      );
-  }, [searchTerm, cameraGroups]);
-
-  const toggleGroup = (key) => {
-    setOpenGroups((prev) => ({ ...prev, [key]: !prev[key] }));
-  };
+    return (cameraList || []).filter((cam) =>
+      cam.toLowerCase().includes(lower),
+    );
+  }, [searchTerm, cameraList]);
 
   const toggleCamera = (cam) => {
     // Only one camera at a time
@@ -207,9 +171,9 @@ function LeftPanel({ collapsed, isMobile, onClose }) {
         </div>
       </div>
 
-      {/* GROUPS LIST (SCROLLABLE) */}
+      {/* CAMERA LIST (SCROLLABLE) */}
       <div className="p-2 text-lg overflow-y-auto flex-1 scrollbar-hide pb-20 md:pb-2">
-        {filteredGroups.length === 0 ? (
+        {filteredCameras.length === 0 ? (
           <div className="flex flex-col items-center justify-center text-[var(--text-muted)] opacity-80 h-32 mt-10">
             <MdOutlineVideocamOff size={36} className="mb-3 " />
             <span className="text-lg font-medium">No cameras found</span>
@@ -218,149 +182,51 @@ function LeftPanel({ collapsed, isMobile, onClose }) {
             </span>
           </div>
         ) : (
-          filteredGroups.map((group) => {
-            const isGroupOpen = searchTerm ? true : openGroups[group.name];
+          filteredCameras.map((cam) => {
+            const isSelected = selectedCameras.includes(cam);
 
             return (
-              <div key={group.name} className="mb-1">
-                {/* GROUP HEADER */}
-                <div className="w-full flex items-center gap-1.5 p-2 md:p-1.5 rounded-lg bg-[var(--hover-bg)]/30 hover:bg-[var(--hover-bg)] text-[var(--text-dark)] transition-colors group cursor-pointer select-none">
-                  <div
-                    className="flex items-center gap-2 font-semibold text-[15px] min-w-0 flex-1"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleGroup(group.name);
-                    }}
-                  >
-                    <span className="tracking-wide truncate">{group.name}</span>
-                  </div>
+              <motion.div
+                key={cam}
+                variants={itemFade}
+                initial="hidden"
+                animate="visible"
+                className={`w-full flex items-center gap-2 py-1.5 pr-2 rounded-lg text-sm md:text-xs transition-all border cursor-pointer mb-1
+                  ${
+                    isSelected
+                      ? "bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30"
+                      : "bg-transparent border-transparent text-[var(--text-dark)] hover:bg-[var(--hover-bg)] hover:border-[var(--border-color)]"
+                  }
+                `}
+                onClick={() => {
+                  toggleCamera(cam);
+                  if (isMobile) onClose?.();
+                }}
+              >
+                <FiVideo
+                  className={`text-[15px] shrink-0 transition-colors ${
+                    isSelected
+                      ? "text-white"
+                      : "text-[var(--primary-color)]/60"
+                  }`}
+                />
 
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      toggleGroup(group.name);
-                    }}
-                    className="p-1 rounded-md hover:bg-[var(--hover-bg)] focus:outline-none transition-colors shrink-0"
-                    title={isGroupOpen ? "Collapse" : "Expand"}
-                  >
-                    <FaChevronDown
-                      className={`text-[10px] text-[var(--text-muted)] transition-transform duration-300 ${isGroupOpen ? "rotate-180" : ""}`}
-                    />
-                  </button>
+                <div className="flex flex-col text-left overflow-hidden w-full">
+                  <span className="truncate font-semibold tracking-wide leading-tight">
+                    {cam}
+                  </span>
                 </div>
 
-                {/* SITES LIST */}
-                <AnimatePresence initial={false}>
-                  {isGroupOpen && (
-                    <motion.div
-                      variants={groupExpand}
-                      initial="hidden"
-                      animate="visible"
-                      exit="exit"
-                      className="overflow-hidden ml-4 pl-3 border-l-2 border-slate-200"
-                    >
-                      {group.sites.map((site) => {
-                        const siteKey = `${group.name}:${site.name}`;
-                        const isSiteOpen = searchTerm
-                          ? true
-                          : openGroups[siteKey];
-
-                        return (
-                          <div key={site.name}>
-                            {/* SITE HEADER */}
-                            <div
-                              className="w-full flex items-center gap-1.5 py-1.5 rounded-lg hover:bg-[var(--hover-bg)] text-[var(--text-dark)] transition-colors cursor-pointer select-none"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                toggleGroup(siteKey);
-                              }}
-                            >
-                              <span className="tracking-wide truncate text-[12px] font-medium">
-                                {site.name}
-                              </span>
-
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  toggleGroup(siteKey);
-                                }}
-                                className="p-0.5 rounded-md hover:bg-[var(--hover-bg)] focus:outline-none transition-colors shrink-0"
-                                title={isSiteOpen ? "Collapse" : "Expand"}
-                              >
-                                <FaChevronDown
-                                  className={`text-[9px] text-[var(--text-muted)] transition-transform duration-300 ${isSiteOpen ? "rotate-180" : ""}`}
-                                />
-                              </button>
-                            </div>
-
-                            {/* CAMERA LIST */}
-                            <AnimatePresence initial={false}>
-                              {isSiteOpen && (
-                                <motion.div
-                                  variants={groupExpand}
-                                  initial="hidden"
-                                  animate="visible"
-                                  exit="exit"
-                                  className="overflow-hidden ml-4 pl-3 border-l-2 border-slate-200"
-                                >
-                                  {site.cameras.map((cam) => {
-                                    const isSelected =
-                                      selectedCameras.includes(cam);
-
-                                    return (
-                                      <motion.div
-                                        key={cam}
-                                        variants={itemFade}
-                                        initial="hidden"
-                                        animate="visible"
-                                        className={`w-full flex items-center gap-2 py-1.5 pr-2 rounded-lg text-sm md:text-xs transition-all border cursor-pointer
-                                          ${
-                                            isSelected
-                                              ? "bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30"
-                                              : "bg-transparent border-transparent text-[var(--text-dark)] hover:bg-[var(--hover-bg)] hover:border-[var(--border-color)]"
-                                          }
-                                        `}
-                                        onClick={() => {
-                                          toggleCamera(cam);
-                                          if (isMobile) onClose?.();
-                                        }}
-                                      >
-                                        <FiVideo
-                                          className={`text-[15px] shrink-0 transition-colors ${
-                                            isSelected
-                                              ? "text-white"
-                                              : "text-[var(--primary-color)]/60"
-                                          }`}
-                                        />
-
-                                        <div className="flex flex-col text-left overflow-hidden w-full">
-                                          <span className="truncate font-semibold tracking-wide leading-tight">
-                                            {cam}
-                                          </span>
-                                        </div>
-
-                                        {/* Camera status indicator */}
-                                        <span
-                                          className={`w-1.5 h-1.5 rounded-full shrink-0 ${
-                                            isSelected
-                                              ? "bg-white"
-                                              : "bg-emerald-500"
-                                          }`}
-                                          title="Online"
-                                        />
-                                      </motion.div>
-                                    );
-                                  })}
-                                </motion.div>
-                              )}
-                            </AnimatePresence>
-                          </div>
-                        );
-                      })}
-                    </motion.div>
-                  )}
-                </AnimatePresence>
-              </div>
+                {/* Camera status indicator */}
+                <span
+                  className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                    isSelected
+                      ? "bg-white"
+                      : "bg-emerald-500"
+                  }`}
+                  title="Online"
+                />
+              </motion.div>
             );
           })
         )}

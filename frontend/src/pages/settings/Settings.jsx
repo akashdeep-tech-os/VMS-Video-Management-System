@@ -27,17 +27,6 @@ const Settings = () => {
     return saved || "users";
   });
 
-  const [department, setDepartment] = useState(() => {
-    try {
-      const active = localStorage.getItem("vms_active_department");
-      if (active) return JSON.parse(active);
-      const departments = JSON.parse(localStorage.getItem("vms_departments") || "[]");
-      return departments[0] || null;
-    } catch {
-      return null;
-    }
-  });
-
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
   const [showSidebar, setShowSidebar] = useState(false);
   const [profileOpen, setProfileOpen] = useState(() => {
@@ -71,22 +60,6 @@ const Settings = () => {
     localStorage.setItem("vms_settings_active_tab", tabId);
   }, []);
 
-  const handleUpdateDepartment = useCallback((updatedDept) => {
-    setDepartment(updatedDept);
-    try {
-      localStorage.setItem("vms_active_department", JSON.stringify(updatedDept));
-      localStorage.setItem("vms_settings_selected_dept", JSON.stringify(updatedDept));
-      const departments = JSON.parse(localStorage.getItem("vms_departments") || "[]");
-      const updated = departments.map((d) =>
-        d.id === updatedDept.id ? updatedDept : d,
-      );
-      localStorage.setItem("vms_departments", JSON.stringify(updated));
-      localStorage.setItem("vms_departments_version", String(Date.now()));
-    } catch (e) {
-      console.warn("Could not update department in localStorage", e);
-    }
-  }, []);
-
   const handleBack = useCallback(() => {
     setActiveTab("users");
     localStorage.setItem("vms_settings_active_tab", "users");
@@ -97,15 +70,12 @@ const Settings = () => {
       case "users":
         return (
           <UserSettings
-            department={department}
-            onUpdateDepartment={handleUpdateDepartment}
             onBack={handleBack}
           />
         );
       case "devices":
         return (
           <AddCameraSettings
-            department={department}
             onBack={handleBack}
           />
         );
@@ -116,24 +86,18 @@ const Settings = () => {
       case "header":
         return (
           <HeaderSettings
-            department={department}
-            onUpdateDepartment={handleUpdateDepartment}
             onBack={handleBack}
           />
         );
       case "theme":
         return (
           <ThemeSettings
-            department={department}
-            onUpdateDepartment={handleUpdateDepartment}
             onBack={handleBack}
           />
         );
       default:
         return (
           <UserSettings
-            department={department}
-            onUpdateDepartment={handleUpdateDepartment}
             onBack={handleBack}
           />
         );

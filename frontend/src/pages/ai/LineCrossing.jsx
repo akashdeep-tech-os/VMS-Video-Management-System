@@ -737,7 +737,7 @@ function LineOverlay({
 }
 
 function LineCrossing() {
-  const { cameraGroups, cameraStreams, openGroups, toggleGroup } =
+  const { cameraList, cameraStreams, openGroups, toggleGroup } =
     useLiveStreaming();
 
   const [isMobile, setIsMobile] = useState(window.innerWidth < 768);
@@ -866,7 +866,7 @@ function LineCrossing() {
         isMobile={isMobile}
         showSidebar={showSidebar}
         setShowSidebar={setShowSidebar}
-        cameraGroups={cameraGroups}
+        cameraList={cameraList}
         openGroups={openGroups}
         toggleGroup={toggleGroup}
         onSelectCamera={handleSelectCamera}

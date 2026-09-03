@@ -97,19 +97,6 @@ function Reports() {
       .catch((err) => console.error("Reports: camera-stats failed", err));
   }, []);
 
-  const departmentConfig = useMemo(() => {
-    const saved = localStorage.getItem("vms_departments");
-    const departments = saved ? JSON.parse(saved) : [];
-    return departments.length > 0
-      ? {
-          departmentName: departments[0].name,
-          groupName: departments[0].groupName,
-        }
-      : null;
-  }, []);
-
-  const groupLabel = departmentConfig?.groupName || "Group";
-
   const activeFilters = tabFilters[activeTab] || {};
   const groupFilter = activeFilters.group || "All";
   const typeFilter = activeFilters.type || "All";
@@ -780,7 +767,7 @@ function Reports() {
                         <th className="py-1.5 px-3 align-middle border-r border-b-2 border-[var(--border-color)]">
                           <div className="flex items-center gap-2">
                             <span className="text-[13px] font-semibold text-[var(--text-dark)] uppercase tracking-wide whitespace-nowrap">
-                              {groupLabel.toUpperCase()}
+                              ZONE
                             </span>
                             <select
                               value={groupFilter}

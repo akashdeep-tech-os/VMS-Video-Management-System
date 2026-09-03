@@ -16,7 +16,7 @@ function toBackendRole(role) {
 }
 
 // Map a backend user into the row shape this table renders.
-function toUserRow(u, deptName) {
+function toUserRow(u) {
   const name =
     [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username;
   return {
@@ -31,7 +31,6 @@ function toUserRow(u, deptName) {
         : u.role_name === "SUPER_ADMIN"
           ? "Super Admin"
           : "User",
-    department: deptName || "N/A",
     baseRights: {},
   };
 }
@@ -74,20 +73,11 @@ const baseRightsList = [
 const inputClass =
   "w-full px-2.5 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg focus:border-[var(--primary-color)] outline-none transition-all text-xs text-[var(--text-dark)] placeholder-[var(--text-muted)]";
 
-function UserSettings({ department, onUpdateDepartment, onBack }) {
-  // Build channels tree from department groups/subgroups
+function UserSettings({ onBack }) {
+  // Build channels tree from accessible cameras
   const channelsTree = useMemo(() => {
-    if (!department?.groups) return [];
-    return department.groups.map((group) => ({
-      id: `group-${group.id}`,
-      label: group.name,
-      children: (group.subGroups || []).map((sub) => ({
-        id: `sub-${sub.id}`,
-        label: sub.name,
-        children: [],
-      })),
-    }));
-  }, [department?.groups]);
+    return [];
+  }, []);
 
   // Users for this department, loaded from the backend (the list endpoint has
   // no department filter, so we fetch and scope by department_id client-side).
@@ -96,10 +86,7 @@ function UserSettings({ department, onUpdateDepartment, onBack }) {
   const loadUsers = async () => {
     try {
       const list = await userService.getUsers();
-      const scoped = (Array.isArray(list) ? list : []).filter(
-        (u) => u.department_id === department?.id,
-      );
-      setUsers(scoped.map((u) => toUserRow(u, department?.name)));
+      setUsers((Array.isArray(list) ? list : []).map((u) => toUserRow(u)));
     } catch (err) {
       console.error("Failed to load users", err);
       setUsers([]);
@@ -111,7 +98,7 @@ function UserSettings({ department, onUpdateDepartment, onBack }) {
     setSelectedIds([]);
     loadUsers();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [department?.id]);
+  }, []);
 
   // Rights the LOGGED-IN user can delegate (from GET /users/{myId}/rights).
   // null = not yet loaded/unknown -> fall back to the full list.
@@ -444,8 +431,6 @@ function UserSettings({ department, onUpdateDepartment, onBack }) {
           username: username.trim(),
           password,
           role_name: toBackendRole(role),
-          department_id: department?.id,
-          station_id: deriveStationId(siteRights),
           active: true,
           site_rights: siteRights,
         });

@@ -48,13 +48,10 @@ const cameraService = {
     });
   },
 
-  // Move a camera between org nodes without re-registering it (keeps its id,
-  // health history and stream paths — org ids aren't part of a path name).
+  // Move a camera between org nodes without re-registering it.
   // Partial: omit a field to leave it unchanged.
-  // 409 CAMERA_QUOTA_EXCEEDED if the target department is at its camera cap.
-  setLocation(id, { departmentId, stationId, siteId } = {}) {
+  setLocation(id, { stationId, siteId } = {}) {
     const body = {};
-    if (departmentId != null) body.department_id = departmentId;
     if (stationId != null) body.station_id = stationId;
     if (siteId != null) body.site_id = siteId;
     return apiClient.patch(`/cameras/${id}/location`, body);
