@@ -143,7 +143,7 @@ export function LiveStreamingProvider({ children }) {
 
   // Update displayed cameras based on selected cameras, grid size, and shift page
   useEffect(() => {
-    const pageSize = grid * gridRows;
+    const pageSize = gridCols * gridRows;
     const start = shiftPage * pageSize;
     const fromSelected = selectedCams.slice(start, start + pageSize);
     if (fromSelected.length > 0) {
@@ -151,7 +151,7 @@ export function LiveStreamingProvider({ children }) {
     } else if (selectedCams.length === 0) {
       setDisplayedCams([]);
     }
-  }, [selectedCams, shiftPage, grid, gridRows]);
+  }, [selectedCams, shiftPage, gridCols, gridRows]);
 
   // Clear stream cache when streamType changes so URLs are re-fetched
   useEffect(() => {
@@ -205,8 +205,8 @@ export function LiveStreamingProvider({ children }) {
 
   // Layout
   const totalPages = useMemo(
-    () => Math.max(1, Math.ceil(displayedCams.length / (grid * gridRows))),
-    [displayedCams.length, grid, gridRows],
+    () => Math.max(1, Math.ceil(selectedCams.length / (gridCols * gridRows))),
+    [selectedCams.length, gridCols, gridRows],
   );
 
   // Events state
