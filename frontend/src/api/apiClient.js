@@ -122,6 +122,7 @@ async function performRequest(path, opts = {}) {
     const message =
       payload?.error?.message ||
       payload?.message ||
+      payload?.detail ||
       `Request failed (${res.status})`;
     const err = new Error(message);
     err.status = res.status;

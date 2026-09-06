@@ -13,6 +13,7 @@ class CameraBase(BaseModel):
     rtsp_port: int = Field(default=554, ge=1, le=65535)
     username: str = Field(default="", max_length=255)
     password: str = Field(default="", max_length=255)
+    rtsp_sub_path: str | None = Field(default=None, max_length=255)
     latitude: float | None = None
     longitude: float | None = None
 
@@ -26,6 +27,7 @@ class CameraCreateRtsp(BaseModel):
 
     name: str = Field(min_length=1, max_length=120)
     rtsp_url: str = Field(min_length=1, max_length=500)
+    rtsp_sub_url: str | None = Field(default=None, max_length=500)
     latitude: float | None = None
     longitude: float | None = None
 
@@ -43,6 +45,7 @@ class CameraUpdate(BaseModel):
     rtsp_port: int | None = Field(default=None, ge=1, le=65535)
     username: str | None = Field(default=None, max_length=255)
     password: str | None = Field(default=None, max_length=255)
+    rtsp_sub_path: str | None = Field(default=None, max_length=255)
     latitude: float | None = None
     longitude: float | None = None
     enabled: bool | None = None
@@ -72,6 +75,12 @@ class CameraRead(CameraBase):
     def webrtc_url(self) -> str:
         """WHEP endpoint the browser connects to directly (never relayed by the backend)."""
         return f"{settings.mediamtx_webrtc_url.rstrip('/')}/cam_{self.id}/whep"
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def sub_webrtc_url(self) -> str:
+        """WHEP endpoint for the sub (low-resolution) stream."""
+        return f"{settings.mediamtx_webrtc_url.rstrip('/')}/cam_{self.id}_sub/whep"
 
 
 class CameraStatus(BaseModel):

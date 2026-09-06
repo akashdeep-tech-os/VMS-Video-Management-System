@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { IoEye, IoEyeOff } from "react-icons/io5";
 import { CiEdit } from "react-icons/ci";
 import { MdDelete } from "react-icons/md";
@@ -13,10 +14,26 @@ function CameraTable({
   onRowDetailsClick,
   activeDetailCamera,
 }) {
+  const departments = useMemo(() => {
+    const saved = localStorage.getItem("vms_departments");
+    return saved ? JSON.parse(saved) : [];
+  }, []);
+
+  const getDepartmentForGroup = (groupName) => {
+    if (!groupName) return "";
+    for (const dept of departments) {
+      const found = (dept.groups || []).find((g) => g.name === groupName);
+      if (found) return dept.name;
+    }
+    return "";
+  };
+
   return (
     <div className="h-auto min-h-0 flex flex-col rounded-xl border border-[var(--border-color)] bg-[var(--card-bg)] overflow-y-auto custom-scrollbar shadow-sm">
-      <table className="w-full border-collapse tracking-wider ">
-        <thead className="sticky top-0 z-10">
+      <table className="w-full border-collapse tracking-wider">
+        {/* FIX: Added solid background (bg-[var(--card-bg)]) to block rows underneath, and increased z-index */}
+        {/* Pull the header up by 1px to close the rendering gap, and keep the solid background */}
+        <thead className="sticky -top-[1px] z-20 bg-[var(--card-bg)] shadow-[0_1px_0_var(--border-color)]">
           <tr className="bg-[var(--primary-color)]/16 font-semibold text-[var(--text-dark)] text-[13px] uppercase">
             <th className="w-[44px] border border-[var(--border-color)] px-4 py-2.5 text-center font-semibold">
               <input
@@ -80,6 +97,7 @@ function CameraTable({
           ) : (
             cameras.map((cam) => {
               const isSliderOpenForThisCam = activeDetailCamera?.id === cam.id;
+              const deptName = getDepartmentForGroup(cam.group);
 
               return (
                 <tr
@@ -107,10 +125,9 @@ function CameraTable({
                   <td className="border border-[var(--border-color)] px-4 py-2 text-sm font-mono text-[var(--primary-color)] text-left">
                     {cam.ip}
                   </td>
-
                   <td className="border border-[var(--border-color)] text-center px-4 py-2">
                     <span
-                      className={`w-2 h-2 rounded-full ${cam.status === "online" ? "bg-green-500" : "bg-red-500"}`}
+                      className={`w-2 h-2 rounded-full inline-block ${cam.status === "online" ? "bg-green-500" : "bg-red-500"}`}
                     ></span>
                   </td>
                   <td

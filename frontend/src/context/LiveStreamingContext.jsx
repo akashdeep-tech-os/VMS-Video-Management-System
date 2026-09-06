@@ -135,12 +135,29 @@ export function LiveStreamingProvider({ children }) {
 
   // Fetch stream info for displayed cameras (WebRTC URL from the real backend)
   const [displayedCams, setDisplayedCams] = useState([]);
+
+  // Reset shift page when selection changes
   useEffect(() => {
-    setDisplayedCams((prev) => {
-      const fromSelected = selectedCams.slice(0, grid * gridRows);
-      return fromSelected.length > 0 ? fromSelected : prev;
-    });
-  }, [selectedCams, grid, gridRows]);
+    setShiftPage(0);
+  }, [selectedCams]);
+
+  // Update displayed cameras based on selected cameras, grid size, and shift page
+  useEffect(() => {
+    const pageSize = grid * gridRows;
+    const start = shiftPage * pageSize;
+    const fromSelected = selectedCams.slice(start, start + pageSize);
+    if (fromSelected.length > 0) {
+      setDisplayedCams(fromSelected);
+    } else if (selectedCams.length === 0) {
+      setDisplayedCams([]);
+    }
+  }, [selectedCams, shiftPage, grid, gridRows]);
+
+  // Clear stream cache when streamType changes so URLs are re-fetched
+  useEffect(() => {
+    requestedStreamsRef.current = new Set();
+    setStreamInfo({});
+  }, [streamType]);
 
   useEffect(() => {
     const toFetch = displayedCams.filter(
@@ -156,19 +173,20 @@ export function LiveStreamingProvider({ children }) {
       cameraService
         .get(meta.id)
         .then((cam) => {
-          const webrtcUrl = cam?.webrtc_url;
-          const playerUrl = webrtcPlayerUrl(webrtcUrl);
+          // Use sub_webrtc_url for sub stream, webrtc_url for main stream
+          const rawUrl = streamType === "sub" ? cam?.sub_webrtc_url : cam?.webrtc_url;
+          const playerUrl = webrtcPlayerUrl(rawUrl);
           setStreamInfo((prev) => ({
             ...prev,
             [name]: {
-              webrtcUrl: playerUrl || webrtcUrl || null,
+              webrtcUrl: playerUrl || rawUrl || null,
               hlsUrl: null,
             },
           }));
         })
         .catch(() => {});
     });
-  }, [displayedCams, cameraMeta]);
+  }, [displayedCams, cameraMeta, streamType]);
 
   // Derive a camera-name -> stream-URL lookup from streamInfo
   const cameraStreams = useMemo(() => {

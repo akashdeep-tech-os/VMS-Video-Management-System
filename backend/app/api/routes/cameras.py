@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.models.camera import Camera
 from app.schemas.camera import CameraCreate, CameraCreateRtsp, CameraRead, CameraStatus, CameraUpdate
 from app.services import mediamtx
-from app.services.onvif import build_rtsp_url
+from app.services.onvif import build_rtsp_url, derive_sub_path
 from app.services.status import status_service
 
 logger = logging.getLogger(__name__)
@@ -24,9 +24,25 @@ CAMERA_ORDER = (Camera.nvr_id, Camera.channel, Camera.name)
 
 
 async def _register_path(camera: Camera) -> None:
-    """Register the camera's RTSP source with MediaMTX (best effort)."""
+    """Register the camera's RTSP source with MediaMTX (best effort).
+
+    Registers both main and sub stream paths. If no sub path is configured,
+    the main stream source is used for the sub path as well, so the SUB/MAIN
+    toggle always works.
+    """
     source = build_rtsp_url(camera.ip_address, camera.rtsp_port, camera.rtsp_path, camera.username, camera.password)
     ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(camera.id), source)
+
+    # Register sub stream path — use dedicated sub path if configured,
+    # otherwise try to derive it from the main path (e.g. Dahua subtype=0 -> 1),
+    # and only fall back to the main source if no derivation is possible.
+    sub_path = camera.rtsp_sub_path or derive_sub_path(camera.rtsp_path)
+    if sub_path:
+        sub_source = build_rtsp_url(camera.ip_address, camera.rtsp_port, sub_path, camera.username, camera.password)
+    else:
+        sub_source = source
+    await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(camera.id), sub_source)
+
     camera.stream_state = "registered" if ok else "error"
 
 
@@ -123,6 +139,12 @@ async def create_camera_rtsp(payload: CameraCreateRtsp, db: Session = Depends(ge
 
     _assert_endpoint_free(db, host, 80, port)
 
+    # Parse sub URL if provided
+    sub_path = None
+    if payload.rtsp_sub_url:
+        sub_parsed = urlparse(payload.rtsp_sub_url)
+        sub_path = sub_parsed.path + (f"?{sub_parsed.query}" if sub_parsed.query else "")
+
     camera = Camera(
         name=payload.name,
         ip_address=host,
@@ -133,6 +155,7 @@ async def create_camera_rtsp(payload: CameraCreateRtsp, db: Session = Depends(ge
         latitude=payload.latitude,
         longitude=payload.longitude,
         rtsp_path=path,
+        rtsp_sub_path=sub_path,
         rtsp_source="rtsp_url",
     )
     db.add(camera)
@@ -181,6 +204,8 @@ async def update_camera(camera_id: int, payload: CameraUpdate, db: Session = Dep
 
     if was_enabled and not camera.enabled:
         await mediamtx.mediamtx.remove_path(mediamtx.path_name(camera.id))
+        if camera.rtsp_sub_path:
+            await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
         camera.stream_state = "idle"
     elif camera.enabled and (not was_enabled or connection_changed):
         await _register_path(camera)
@@ -196,6 +221,8 @@ async def delete_camera(camera_id: int, db: Session = Depends(get_db)) -> None:
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     await mediamtx.mediamtx.remove_path(mediamtx.path_name(camera.id))
+    if camera.rtsp_sub_path:
+        await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
     status_service._cache.pop(camera.id, None)
     db.delete(camera)
     db.commit()

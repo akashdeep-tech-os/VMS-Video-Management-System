@@ -26,6 +26,13 @@ BRAND_RTSP_PATHS = {
     "default": "/stream1",
 }
 
+# Sub-stream RTSP paths (low resolution) for each brand
+BRAND_RTSP_SUB_PATHS = {
+    "cpplus": "/cam/realmonitor?channel={ch}&subtype=1",
+    "dahua": "/cam/realmonitor?channel={ch}&subtype=1",
+    "hikvision": "/Streaming/Channels/{ch}02",
+}
+
 # Max length of Camera.name / NVR.name in the schema.
 NAME_MAX = 120
 
@@ -35,6 +42,19 @@ def _get_rtsp_path(brand: str | None, channel: int) -> str:
     brand_key = (brand or "").lower().replace(" ", "")
     path_template = BRAND_RTSP_PATHS.get(brand_key, BRAND_RTSP_PATHS["default"])
     return path_template.format(ch=channel)
+
+
+def _get_rtsp_sub_path(brand: str | None, channel: int) -> str | None:
+    """Get the sub-stream RTSP path for a given brand and channel number.
+
+    Returns None for brands without a known sub-stream convention;
+    the caller can derive it from the main path via derive_sub_path().
+    """
+    brand_key = (brand or "").lower().replace(" ", "")
+    path_template = BRAND_RTSP_SUB_PATHS.get(brand_key)
+    if path_template:
+        return path_template.format(ch=channel)
+    return None
 
 
 def channel_name(device_name: str, channel: int) -> str:
@@ -125,6 +145,7 @@ async def _sync_channels(
 
     for ch in range(start_channel, start_channel + num_channels):
         rtsp_path = _get_rtsp_path(brand_hint, ch)
+        rtsp_sub_path = _get_rtsp_sub_path(brand_hint, ch)
         rtsp_url = build_rtsp_url(
             nvr.ip_address, nvr.rtsp_port, rtsp_path, nvr.username, nvr.password
         )
@@ -145,10 +166,17 @@ async def _sync_channels(
         cam.username = nvr.username
         cam.password = nvr.password
         cam.rtsp_path = rtsp_path
+        cam.rtsp_sub_path = rtsp_sub_path
         cam.rtsp_source = "brand_convention"
         db.flush()
 
         ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(cam.id), rtsp_url)
+        # Register sub stream path with MediaMTX
+        if rtsp_sub_path:
+            sub_url = build_rtsp_url(
+                nvr.ip_address, nvr.rtsp_port, rtsp_sub_path, nvr.username, nvr.password
+            )
+            await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(cam.id), sub_url)
         cam.stream_state = "registered" if ok else "error"
         db.flush()
 

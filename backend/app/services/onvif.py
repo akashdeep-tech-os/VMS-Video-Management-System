@@ -7,6 +7,7 @@ probing 100 cameras.
 
 import asyncio
 import logging
+import re
 import socket
 from dataclasses import dataclass
 from urllib.parse import quote, urlparse
@@ -42,6 +43,7 @@ class OnvifProbeResult:
     firmware: str | None = None
     serial: str | None = None
     rtsp_path: str | None = None
+    rtsp_sub_path: str | None = None
     rtsp_source: str = "none"  # onvif | fallback | none
     fail_reason: str | None = None  # unreachable | auth | timeout | onvif | rtsp
     detail: str | None = None
@@ -57,6 +59,29 @@ def build_rtsp_url(host: str, port: int, path: str | None, username: str, passwo
     if username or password:
         creds = f"{quote(username, safe='')}:{quote(password, safe='')}@"
     return f"rtsp://{creds}{host}:{port}{path or '/'}"
+
+
+def derive_sub_path(main_path: str | None) -> str | None:
+    """Derive the sub-stream RTSP path from a main-stream path.
+
+    Known patterns:
+      Dahua / CP Plus: /cam/realmonitor?channel=N&subtype=0  ->  subtype=1
+      Hikvision:       /Streaming/Channels/N01               ->  N02
+    Returns None for unrecognized paths (caller should fall back to main).
+    """
+    if not main_path:
+        return None
+
+    # Dahua / CP Plus: subtype=0 -> subtype=1
+    if "subtype=0" in main_path:
+        return main_path.replace("subtype=0", "subtype=1")
+
+    # Hikvision: channel path ending in 01 -> 02
+    m = re.search(r"(/Streaming/Channels/\d+)01$", main_path)
+    if m:
+        return m.group(1) + "02"
+
+    return None
 
 
 def _tcp_reachable(host: str, port: int, timeout: float = TCP_TIMEOUT) -> bool:
@@ -114,6 +139,7 @@ def _probe_onvif_sync(host, onvif_port, rtsp_port, username, password) -> OnvifP
         firmware=str(getattr(info, "FirmwareVersion", "") or "") or None,
         serial=getattr(info, "SerialNumber", None) or None,
         rtsp_path=rtsp_path,
+        rtsp_sub_path=derive_sub_path(rtsp_path),
         rtsp_source="onvif" if rtsp_path else "none",
     )
 
@@ -176,6 +202,7 @@ async def probe_camera(host: str, onvif_port: int, rtsp_port: int, username: str
 
     if path:
         result.rtsp_path = path
+        result.rtsp_sub_path = derive_sub_path(path)
         result.rtsp_source = "fallback"
         return result
 

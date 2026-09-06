@@ -43,6 +43,7 @@ function AddCameraModal({
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState(null);
   const [brandOpen, setBrandOpen] = useState(false);
   const brandRef = useRef(null);
   const brandBtnRef = useRef(null);
@@ -161,11 +162,6 @@ function AddCameraModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, editingCamera?.id]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: value }));
-  };
-
   const handleReset = () => {
     setForm({
       name: "",
@@ -184,6 +180,13 @@ function AddCameraModal({
       recordingMode: "local",
       storagePath: "",
     });
+    setSubmitError(null);
+  };
+
+  const handleChange = (e) => {
+    const { name, value } = e.target;
+    setForm((prev) => ({ ...prev, [name]: value }));
+    setSubmitError(null);
   };
 
   const handleSubmit = async () => {
@@ -200,6 +203,7 @@ function AddCameraModal({
     if (form.connectionType !== "RTSP" && !form.ip) return;
 
     setIsSubmitting(true);
+    setSubmitError(null);
     try {
       let createdCamera;
       if (isNvr) {
@@ -237,7 +241,7 @@ function AddCameraModal({
       handleReset();
       onClose();
     } catch (err) {
-      alert("Failed to add device: " + (err.message || "Unknown error"));
+      setSubmitError(err.message || "Unknown error");
     } finally {
       setIsSubmitting(false);
     }
@@ -554,6 +558,13 @@ function AddCameraModal({
                   </div>
                 )}
               </div>
+
+              {/* ERROR MESSAGE */}
+              {submitError && (
+                <div className="mt-3 px-3 py-2 bg-red-500/10 border border-red-500/30 rounded-lg text-red-600 text-xs">
+                  {submitError}
+                </div>
+              )}
 
               {/* FOOTER ACTIONS */}
               <div className="flex justify-end items-center gap-2 mt-3 pt-3 border-t border-[var(--border-color)]">

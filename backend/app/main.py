@@ -11,7 +11,7 @@ from app.core.database import SessionLocal
 from app.core.logging import setup_logging
 from app.models.camera import Camera
 from app.services import mediamtx
-from app.services.onvif import build_rtsp_url
+from app.services.onvif import build_rtsp_url, derive_sub_path
 
 setup_logging()
 
@@ -22,8 +22,8 @@ async def _reregister_all_cameras() -> None:
     """Re-register every enabled camera with MediaMTX on startup.
 
     MediaMTX forgets all dynamically-added paths when it restarts, so this
-    ensures the WebRTC player pages (cam_{id}) exist before the browser
-    tries to connect.
+    ensures the WebRTC player pages (cam_{id} and cam_{id}_sub) exist before
+    the browser tries to connect.
     """
     with SessionLocal() as db:
         cams = list(
@@ -42,6 +42,20 @@ async def _reregister_all_cameras() -> None:
         ok = await mediamtx.mediamtx.add_path(path_name, source)
         if ok:
             ok_count += 1
+
+        # Register sub stream path — use dedicated sub path if configured,
+        # otherwise try to derive it from the main path (e.g. Dahua subtype=0 -> 1),
+        # and only fall back to the main source if no derivation is possible.
+        sub_path = cam.rtsp_sub_path or derive_sub_path(cam.rtsp_path)
+        if sub_path:
+            sub_source = build_rtsp_url(
+                cam.ip_address, cam.rtsp_port, sub_path,
+                cam.username, cam.password,
+            )
+        else:
+            sub_source = source
+        await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(cam.id), sub_source)
+
         with SessionLocal() as db:
             db_cam = db.get(Camera, cam.id)
             if db_cam:
