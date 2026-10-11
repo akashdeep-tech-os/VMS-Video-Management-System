@@ -59,6 +59,7 @@ function AddCameraModal({
     { value: "consistent", label: "Consistent" },
     { value: "cpplus", label: "CP Plus" },
     { value: "dahua", label: "Dahua" },
+    { value: "evision", label: "e-Vision" },
     { value: "godrej", label: "Godrej" },
     { value: "hawkvision", label: "Hawkvision" },
     { value: "hifocus", label: "Hi-focus" },

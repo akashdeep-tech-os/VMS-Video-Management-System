@@ -1,14 +1,23 @@
-"""Recorded playback for CP Plus / Dahua style NVRs.
+"""Recorded playback - vendor-aware RTSP URL selection.
 
-CP Plus is a Dahua OEM, and Dahua recorders ignore time parameters on the live
-``/cam/realmonitor`` URL (verified against the fleet: even ``starttime=20270101``
-returns the live stream). Recorded playback has its own RTSP path with
-underscore-formatted times:
+Every manufacturer exposes recordings under its own RTSP path with its own
+time format; the family is resolved in app/services/playback_urls.py from the
+NVR brand / camera manufacturer and the live RTSP path pattern:
 
-    rtsp://user:pass@ip:port/cam/playback?channel=1&subtype=0
-        &starttime=2026_10_09_12_00_00&endtime=2026_10_09_12_05_00
+* Dahua / CP Plus (+ OEMs like Hi-Focus, Consistent):
+      /cam/playback?channel=1&subtype=0
+          &starttime=2026_10_09_12_00_00&endtime=2026_10_09_12_05_00
+* Hikvision (+ OEMs like Prama):
+      /Streaming/tracks/101?starttime=20261009T120000Z&endtime=...
+* e-Vision NVR/DVR:
+      /rtsp/playback?channel=1&subtype=0
+          &starttime=2026-10-09T12:00:00Z&endtime=...&localtime=true
+* e-Vision IPC:
+      /cam/playback?channel=1&starttime=...&endtime=...
+* Axis:
+      /axis-media/media.amp?camera=1&event=1&starttime=...&endtime=...
 
-Verified behaviour on the fleet's NVRs:
+Verified behaviour on the fleet's Dahua-family NVRs:
 * ``404 Not Found`` when nothing is recorded at that time (times are honoured),
 * the stream ends at ``endtime`` and is paced at ~1x real time,
 * ``subtype=1`` is rejected with 404, so playback always uses the main stream.
@@ -20,7 +29,6 @@ as another on-demand MediaMTX path and the browser plays it over WHEP.
 import asyncio
 import logging
 import os
-import re
 import shutil
 import subprocess
 import tempfile
@@ -36,10 +44,12 @@ from app.core.database import get_db
 from app.core.deps import get_current_user
 from app.core.rbac import ROLE_ADMIN
 from app.models.camera import Camera
+from app.models.nvr import NVR
 from app.models.user import User
 from app.schemas.playback import PlaybackResponse, PlaybackStartRequest
 from app.services import mediamtx
 from app.services.onvif import build_rtsp_url
+from app.services.playback_urls import build_playback_path, channel_from_path, detect_vendor
 
 logger = logging.getLogger(__name__)
 
@@ -59,10 +69,6 @@ _active_paths: dict[tuple[int, int], str] = {}
 _registration_lock = asyncio.Lock()
 
 
-def _fmt_dahua_time(dt: datetime) -> str:
-    return dt.strftime("%Y_%m_%d_%H_%M_%S")
-
-
 def _path_name(user: User, camera_id: int, start: datetime) -> str:
     # No slashes: the name is used verbatim in http://host:8889/{path}/whep.
     return (
@@ -71,24 +77,30 @@ def _path_name(user: User, camera_id: int, start: datetime) -> str:
     )
 
 
-def build_playback_source(camera: Camera, start: datetime, end: datetime) -> str:
+def build_playback_source(
+    camera: Camera,
+    start: datetime,
+    end: datetime,
+    brand_hints: tuple[str, ...] = (),
+) -> str:
     """Build the NVR's recorded-playback RTSP URL for this camera.
 
-    Dahua-family paths (``/cam/realmonitor?channel=N&...``) are converted to
-    ``/cam/playback?channel=N&subtype=0&starttime=...&endtime=...``. Anything
-    else gets the time window appended to its stored path as a best effort.
+    The vendor family is picked from the brand hints (NVR brand_name /
+    manufacturer / ONVIF manufacturer) and the live RTSP path pattern, so
+    Dahua-, Hikvision-, e-Vision- and Axis-family recorders each get their
+    documented playback URL. Unknown vendors fall back to a best-effort
+    conversion of the stored live path.
     """
-    rtsp_path = camera.rtsp_path or ""
-    match = re.search(r"channel=(\d+)", rtsp_path)
-    channel = int(match.group(1)) if match else (camera.channel or 1)
-    window = f"starttime={_fmt_dahua_time(start)}&endtime={_fmt_dahua_time(end)}"
-
-    if "realmonitor" in rtsp_path:
-        path = f"/cam/playback?channel={channel}&subtype=0&{window}"
-    else:
-        separator = "&" if "?" in rtsp_path else "?"
-        path = f"{rtsp_path}{separator}{window}"
-
+    vendor = detect_vendor(camera.rtsp_path, *brand_hints)
+    channel = channel_from_path(camera.rtsp_path) or camera.channel or 1
+    path = build_playback_path(
+        vendor,
+        camera.rtsp_path,
+        channel,
+        start,
+        end,
+        is_nvr_channel=camera.nvr_id is not None,
+    )
     return build_rtsp_url(camera.ip_address, camera.rtsp_port, path, camera.username, camera.password)
 
 
@@ -139,10 +151,20 @@ def _load_camera(db: Session, user: User, camera_id: int) -> Camera:
     return camera
 
 
+def _brand_hints(db: Session, camera: Camera) -> tuple[str, ...]:
+    """Brand strings that identify the vendor: ONVIF manufacturer + NVR brand."""
+    hints = [camera.manufacturer]
+    if camera.nvr_id is not None:
+        nvr = db.get(NVR, camera.nvr_id)
+        if nvr is not None:
+            hints.extend([nvr.brand_name, nvr.manufacturer])
+    return tuple(h for h in hints if h)
+
+
 async def _begin(db: Session, user: User, payload: PlaybackStartRequest) -> PlaybackResponse:
     camera = _load_camera(db, user, payload.camera_id)
     start, end = _parse_window(payload.date, payload.time, payload.end_time)
-    source = build_playback_source(camera, start, end)
+    source = build_playback_source(camera, start, end, _brand_hints(db, camera))
     key = (user.id, camera.id)
     path = _path_name(user, camera.id, start)
 
@@ -251,7 +273,7 @@ async def download_clip(
     """Export [startTime..endTime] of one camera as an MP4 download."""
     camera = _load_camera(db, user, camera_id)
     start, end = _parse_window(date, start_time, end_time)
-    source = build_playback_source(camera, start, end)
+    source = build_playback_source(camera, start, end, _brand_hints(db, camera))
     duration = int((end - start).total_seconds())
 
     handle = tempfile.NamedTemporaryFile(suffix=".mp4", delete=False)

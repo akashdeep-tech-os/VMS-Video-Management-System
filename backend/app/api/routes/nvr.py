@@ -12,16 +12,27 @@ from app.models.nvr import NVR
 from app.schemas.nvr import NVRCreate, NVRDiscoverRequest, NVRRead, NVRUpdate
 from app.services import mediamtx
 from app.services.onvif import build_rtsp_url
+from app.services.playback_urls import normalize_brand
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/nvrs", tags=["nvrs"])
 
-# Brand-to-RTSP-path mapping for channel registration without probing
+# Brand-to-RTSP-path mapping for channel registration without probing.
+# Indian-market brands that OEM the big Chinese platforms are mapped to their
+# parent convention (Consistent/Hi-Focus -> Dahua, Prama/Hawkvision ->
+# Hikvision, e-Vision -> /rtsp/streaming). Brands without a known convention
+# fall back to the "default" template; their playback family is still resolved
+# per camera from the ONVIF manufacturer / live-path pattern.
 BRAND_RTSP_PATHS = {
     "cpplus": "/cam/realmonitor?channel={ch}&subtype=0",
     "dahua": "/cam/realmonitor?channel={ch}&subtype=0",
+    "consistent": "/cam/realmonitor?channel={ch}&subtype=0",
+    "hifocus": "/cam/realmonitor?channel={ch}&subtype=0",
     "hikvision": "/Streaming/Channels/{ch}01",
+    "prama": "/Streaming/Channels/{ch}01",
+    "hawkvision": "/Streaming/Channels/{ch}01",
+    "evision": "/rtsp/streaming?channel={ch}&subtype=0",
     "axis": "/axis-media/media.axs",
     "default": "/stream1",
 }
@@ -30,7 +41,12 @@ BRAND_RTSP_PATHS = {
 BRAND_RTSP_SUB_PATHS = {
     "cpplus": "/cam/realmonitor?channel={ch}&subtype=1",
     "dahua": "/cam/realmonitor?channel={ch}&subtype=1",
+    "consistent": "/cam/realmonitor?channel={ch}&subtype=1",
+    "hifocus": "/cam/realmonitor?channel={ch}&subtype=1",
     "hikvision": "/Streaming/Channels/{ch}02",
+    "prama": "/Streaming/Channels/{ch}02",
+    "hawkvision": "/Streaming/Channels/{ch}02",
+    "evision": "/rtsp/streaming?channel={ch}&subtype=1",
 }
 
 # Max length of Camera.name / NVR.name in the schema.
@@ -39,7 +55,7 @@ NAME_MAX = 120
 
 def _get_rtsp_path(brand: str | None, channel: int) -> str:
     """Get the RTSP path for a given brand and channel number."""
-    brand_key = (brand or "").lower().replace(" ", "")
+    brand_key = normalize_brand(brand)
     path_template = BRAND_RTSP_PATHS.get(brand_key, BRAND_RTSP_PATHS["default"])
     return path_template.format(ch=channel)
 
@@ -50,7 +66,7 @@ def _get_rtsp_sub_path(brand: str | None, channel: int) -> str | None:
     Returns None for brands without a known sub-stream convention;
     the caller can derive it from the main path via derive_sub_path().
     """
-    brand_key = (brand or "").lower().replace(" ", "")
+    brand_key = normalize_brand(brand)
     path_template = BRAND_RTSP_SUB_PATHS.get(brand_key)
     if path_template:
         return path_template.format(ch=channel)
