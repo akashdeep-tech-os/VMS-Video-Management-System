@@ -27,6 +27,16 @@ class Settings(BaseSettings):
 
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173"
 
+    # --- auth / role-based access control -----------------------------------
+    # HMAC secret for the HS256 access tokens. Override via AUTH_SECRET_KEY in
+    # .env for anything beyond local development.
+    auth_secret_key: str = "dev-only-secret-change-me"
+    auth_token_ttl_seconds: int = 43200  # 12 hours
+
+    # First-run bootstrap account (only created when the users table is empty).
+    bootstrap_admin_username: str = "admin"
+    bootstrap_admin_password: str = "admin123"
+
     mediamtx_api_url: str = "http://localhost:9997"
     mediamtx_rtsp_url: str = "rtsp://localhost:8554"
     mediamtx_rtmp_url: str = "rtmp://localhost:1935"

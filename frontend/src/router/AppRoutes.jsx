@@ -32,7 +32,8 @@ const AppRoutes = () => {
           <Route path="/" element={<Login />} />
 
           {/* ================= PROTECTED ROUTES ================= */}
-          {/* <Route element={<ProtectedRoute />}> */}
+          {/* Requires a token (vms_token); unauthenticated users go to Login. */}
+          <Route element={<ProtectedRoute />}>
             <Route element={<MainLayout />}>
               <Route path="/dashboard" element={<Dashboard />} />
               <Route path="/live" element={<LiveStreaming />} />
@@ -50,7 +51,7 @@ const AppRoutes = () => {
               <Route path="/settings" element={<Settings />} />
               <Route path="/about" element={<About />} />
             </Route>
-          {/* </Route> */}
+          </Route>
 
           {/* ================= CATCH-ALL ROUTE ================= */}
           {/* If a user types a random URL (like /fakepage), automatically redirect them to the Dashboard */}

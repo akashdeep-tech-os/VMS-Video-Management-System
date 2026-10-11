@@ -78,11 +78,12 @@ export const sidebarConfig = [
     icon: FaInfoCircle,
   },
 
-  // SETTINGS (Clickable, no dropdown)
+  // SETTINGS (Admin only - the `roles` list is enforced in Sidebar.jsx)
   {
     type: "single",
     name: "Settings",
     path: "/settings",
     icon: FaCog,
+    roles: ["ADMIN"],
   },
 ];

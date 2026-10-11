@@ -1,27 +1,29 @@
-import React, { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   FaUsers,
   FaCamera,
   FaHeading,
-  FaPalette,
   FaUserCircle,
   FaBuilding,
   FaHeadset,
   FaBars,
   FaTimes,
+  FaLock,
 } from "react-icons/fa";
 import { motion, AnimatePresence } from "framer-motion";
 import UserSettings from "../../components/settings/UserSettings";
 import AddCameraSettings from "../../components/settings/AddCameraSettings";
-import ThemeSettings from "../../theme/components/ThemeSettings";
 import HeaderSettings from "../../components/settings/HeaderSettings";
 import CompanyProfileSettings from "../../components/settings/CompanyProfileSettings";
 import SupportContactSettings from "../../components/settings/SupportContactSettings";
+import { isAdmin } from "../../api/userService";
 
 const Settings = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState(() => {
     const saved = localStorage.getItem("vms_settings_active_tab");
-    if (["adddepartments", "centraldata", "switchdept", "groups"].includes(saved)) {
+    if (["adddepartments", "centraldata", "switchdept", "groups", "theme"].includes(saved)) {
       return "users";
     }
     return saved || "users";
@@ -89,12 +91,6 @@ const Settings = () => {
             onBack={handleBack}
           />
         );
-      case "theme":
-        return (
-          <ThemeSettings
-            onBack={handleBack}
-          />
-        );
       default:
         return (
           <UserSettings
@@ -111,7 +107,6 @@ const Settings = () => {
       companyprofile: "Company Profile",
       support: "Support & Contact",
       header: "Header Settings",
-      theme: "Theme",
     };
     return tabLabels[activeTab] || "Settings";
   };
@@ -243,26 +238,37 @@ const Settings = () => {
           <FaHeading size={15} className="shrink-0" />
           <span>Header Settings</span>
         </button>
-
-        {/* Theme */}
-        <button
-          onClick={() => {
-            handleTabChange("theme");
-            if (isMobile) setShowSidebar(false);
-          }}
-          className={`flex items-center gap-2.5 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 whitespace-nowrap w-full text-left
-            ${
-              activeTab === "theme"
-                ? "bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-500/10 dark:text-blue-400 dark:border-blue-500/30"
-                : "text-[var(--text-muted)] hover:bg-[var(--hover-bg)] hover:text-[var(--text-dark)] border border-transparent"
-            }`}
-        >
-          <FaPalette size={15} className="shrink-0" />
-          <span>Theme</span>
-        </button>
       </div>
     </div>
   );
+
+  // Settings (users, devices, header, ...) is an Admin-only area.
+  const canManage = isAdmin();
+
+  if (!canManage) {
+    return (
+      <div className="h-full w-full bg-[var(--bg-color)] p-4 flex items-center justify-center">
+        <div className="max-w-md w-full bg-[var(--card-bg)] border border-[var(--border-color)] rounded-2xl p-8 text-center shadow-sm">
+          <div className="mx-auto mb-4 w-14 h-14 rounded-full bg-[var(--primary-color)]/10 flex items-center justify-center">
+            <FaLock className="text-[var(--primary-color)] text-xl" />
+          </div>
+          <h2 className="text-lg font-bold text-[var(--text-dark)]">
+            Access restricted
+          </h2>
+          <p className="text-sm text-[var(--text-muted)] mt-2">
+            Settings is only available to administrators. Contact an admin if
+            you need access.
+          </p>
+          <button
+            onClick={() => navigate("/dashboard")}
+            className="mt-5 px-5 py-2 bg-[var(--primary-color)] text-white rounded-lg text-sm font-bold hover:opacity-90 transition"
+          >
+            Back to Dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="h-full w-full bg-[var(--bg-color)] text-[var(--text-dark)] p-2 md:p-3 overflow-hidden">

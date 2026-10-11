@@ -7,5 +7,5 @@ export { default as orgService } from "./orgService";
 export { default as playbackService } from "./playbackService";
 export { default as ptzService } from "./ptzService";
 export { default as systemService } from "./systemService";
-export { default as userService, ROLES, currentRole, currentUserId, currentUser, currentDisplayName, roleLabel, isSuperAdmin, canManageStationsSites } from "./userService";
+export { default as userService, ROLES, BASE_RIGHT_IDS, toRoleEnum, currentRole, currentUserId, currentUser, currentDisplayName, roleLabel, isAdmin, canManageStationsSites } from "./userService";
 export { loadAccessibleCameras, treeToGroups, RIGHT_LIVE_MONITORING, RIGHT_PLAYBACK } from "./accessibleCameras";

@@ -1,34 +1,44 @@
 // Auth + user management against the real backend (/api/v1).
 //
 // Contract notes (verified against the live server):
-//  - Login returns { token, token_type, expires_in_seconds, username, role }
-//    and NO rights array anymore -> we derive rights client-side from the role
-//    so existing rights-gated UI keeps working.
-//  - Users use first_name / last_name / role_name / active (no `email`).
-//  - Roles are a fixed enum, not a /roles endpoint.
+//  - Login returns { token, token_type, expires_in_seconds, id, username,
+//    full_name, role } and NO rights array -> we derive rights client-side
+//    from the role so rights-gated UI keeps working.
+//  - Users use username / role / active / base_rights / channel_rights.
+//  - Roles are a fixed two-value enum (ADMIN | USER), not a /roles endpoint.
 import apiClient from "./apiClient";
 
-// Backend roles are a closed enum (SUPER_ADMIN | ADMIN | USER). We surface them
-// as the "roles" list the Users form expects (id + name).
+// The only two roles the system knows about.
 export const ROLES = [
-  { id: "SUPER_ADMIN", name: "SUPER_ADMIN", description: "Full system access" },
-  { id: "ADMIN", name: "ADMIN", description: "Department administrator" },
+  { id: "ADMIN", name: "ADMIN", description: "Full system access" },
   { id: "USER", name: "USER", description: "Standard operator" },
 ];
 
-// Login no longer returns rights; derive a sensible set from the role so any
-// rights-based show/hide in the UI still functions.
-const ALL_RIGHTS = [
-  "CAMERA_CREATE",
-  "CAMERA_UPDATE",
-  "CAMERA_DELETE",
-  "NVR_MANAGE",
-  "STREAM_VIEW",
-  "PLAYBACK_VIEW",
-  "HEALTH_VIEW",
-  "PTZ_CONTROL",
-  "USER_MANAGE",
+// The 14 base rights (ui ids) from the backend rights catalog, in catalog order.
+export const BASE_RIGHT_IDS = [
+  "dashboard",
+  "liveMonitoring",
+  "playback",
+  "reports",
+  "anprDashboard",
+  "vehicleTracking",
+  "blacklistVehicles",
+  "anprReports",
+  "faceRecognition",
+  "peopleCounting",
+  "lineCrossing",
+  "objectDetection",
+  "ptzController",
+  "settings",
 ];
+
+// What a USER holds when nothing explicit was granted (Settings is Admin-only).
+const USER_DEFAULT_RIGHT_IDS = BASE_RIGHT_IDS.filter((id) => id !== "settings");
+
+// Normalize any role label ("Admin", "ADMIN", ...) to the backend enum.
+export function toRoleEnum(role) {
+  return String(role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER";
+}
 
 // The currently logged-in user's role. Read from the JWT (authoritative for
 // this session, always present) and fall back to the stored vms_user object.
@@ -88,7 +98,7 @@ export function currentDisplayName() {
   return full || u.username || "";
 }
 
-// Turn the backend role enum (e.g. "SUPER_ADMIN") into a display label
+// Turn the backend role enum (e.g. "ADMIN") into a display label ("Admin").
 // ("Super Admin").
 export function roleLabel(role) {
   if (!role) return "";
@@ -99,26 +109,23 @@ export function roleLabel(role) {
     .join(" ");
 }
 
-// Department writes are SUPER_ADMIN-only on the backend.
-export function isSuperAdmin() {
-  return currentRole() === "SUPER_ADMIN";
+// Settings (user/device management) is Admin-only in the two-role system.
+export function isAdmin() {
+  return currentRole() === "ADMIN";
 }
 
-// Station/site writes are allowed for SUPER_ADMIN and ADMIN (an ADMIN is scoped
-// to its own department, enforced by the backend).
+// Station/site writes are allowed for admins.
 export function canManageStationsSites() {
-  const r = currentRole();
-  return r === "SUPER_ADMIN" || r === "ADMIN";
+  return isAdmin();
 }
 
 export function rightsForRole(role) {
-  switch (role) {
-    case "SUPER_ADMIN":
+  switch (toRoleEnum(role)) {
     case "ADMIN":
-      return ALL_RIGHTS;
+      return BASE_RIGHT_IDS;
     case "USER":
     default:
-      return ["STREAM_VIEW", "PLAYBACK_VIEW", "HEALTH_VIEW"];
+      return USER_DEFAULT_RIGHT_IDS;
   }
 }
 
@@ -133,26 +140,27 @@ const userService = {
     return apiClient.get("/auth/me");
   },
 
-  // A user's granted rights, grouped per site (user_site_rights_mapping).
-  // Used to constrain what an admin can delegate — no privilege escalation.
+  // A user's granted base rights as grouped entries
+  // ([{ scope, rights: [{ id, rights_name }] }]).
+  // Used to constrain what an admin can delegate - no privilege escalation.
   async getUserRights(id) {
     return apiClient.get(`/users/${id}/rights`);
   },
 
-  // The read-only rights catalog: [{ id, rights_name, description }].
+  // The rights catalog: [{ id, rights_name, ui_id, label, description }].
   async getRights() {
     return apiClient.get("/rights");
   },
 
-  // The Station -> Site -> Camera tree the user may see for a given right.
-  // right_id is resolved from getRights() (e.g. the LIVE_MONITORING entry).
+  // The cameras the user may use for a given right (their channel-rights
+  // grant). right_id comes from getRights() (e.g. the LIVE_MONITORING entry).
   async getAccessibleCameras(id, rightId) {
     return apiClient.get(`/users/${id}/accessible-cameras`, { right_id: rightId });
   },
 
   // ---- users ----
   async getUsers() {
-    // List endpoint is paginated + enveloped; unwrap to the plain array.
+    // Admin-only list; returns the plain array of users.
     return apiClient.get("/users");
   },
 
@@ -178,31 +186,27 @@ const userService = {
   },
 };
 
-// Map the (rich, mock-era) Add/Edit-User form to the fields the backend accepts.
-// Unsupported fields (email, base/channel rights matrix) are intentionally dropped
-// per the agreed "keep form UI, send supported subset" approach.
+// Map the Add/Edit-User form to the fields the backend accepts.
 function toBackendUser(form = {}, { create = false } = {}) {
-  const roleName = form.role_name || form.role || undefined;
-  const payload = {
-    role_name: roleName,
-    first_name: form.first_name ?? form.firstName,
-    last_name: form.last_name ?? form.lastName,
-  };
-  if (create) payload.username = form.username;
-  if (typeof form.active === "boolean") payload.active = form.active;
-  // The backend requires department_id for ADMIN/USER accounts (not SUPER_ADMIN).
-  // Passed through when the form provides it; otherwise the backend returns a
-  // clear VALIDATION_ERROR that surfaces in the Users page alert.
-  if (form.department_id != null) payload.department_id = form.department_id;
-  if (form.station_id != null) payload.station_id = form.station_id;
-  // Per-site rights grants: [{ site_id, right_ids: [...] }] -> the backend fans
-  // these out into user_site_rights_mapping rows.
-  if (Array.isArray(form.site_rights)) payload.site_rights = form.site_rights;
-  // Only include password when actually provided (create, or an explicit reset).
-  if (form.password) payload.password = form.password;
+  const payload = {};
 
-  // Strip undefined so PATCH stays a true partial update.
-  Object.keys(payload).forEach((k) => payload[k] === undefined && delete payload[k]);
+  const role = form.role || form.role_name;
+  if (role) payload.role = toRoleEnum(role);
+
+  if (create) {
+    payload.username = form.username;
+    payload.password = form.password;
+  } else if (form.password) {
+    // Only include the password when one was actually typed (a reset).
+    payload.password = form.password;
+  }
+
+  if (typeof form.active === "boolean") payload.active = form.active;
+  if (Array.isArray(form.base_rights)) payload.base_rights = form.base_rights;
+  if (form.channel_rights && typeof form.channel_rights === "object") {
+    payload.channel_rights = form.channel_rights;
+  }
+
   return payload;
 }
 

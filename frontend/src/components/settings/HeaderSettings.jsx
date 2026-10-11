@@ -32,17 +32,29 @@ const DEFAULT_CONFIG = {
   festivalName: "",
 };
 
-function HeaderSettings({ onBack }) {
-  const [config, setConfig] = useState(() => ({
+const HEADER_CONFIG_KEY = "vms_header_config";
+
+function readSavedHeaderConfig() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(HEADER_CONFIG_KEY) || "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function buildHeaderConfig(department) {
+  return {
     ...DEFAULT_CONFIG,
-    headerMode: "background",
-  }));
+    ...(department?.theme || {}),
+    ...readSavedHeaderConfig(),
+  };
+}
+
+function HeaderSettings({ department = null, onBack }) {
+  const [config, setConfig] = useState(() => buildHeaderConfig(department));
   const [hasChanges, setHasChanges] = useState(false);
   const [saved, setSaved] = useState(false);
-  const [initialConfig] = useState(() => ({
-    ...DEFAULT_CONFIG,
-    ...deptTheme,
-  }));
 
   const logoInputRef = useRef(null);
   const videoInputRef = useRef(null);
@@ -55,8 +67,7 @@ function HeaderSettings({ onBack }) {
   const [openSubtitleColor, setOpenSubtitleColor] = useState(false);
 
   useEffect(() => {
-    const deptTheme = department?.theme || {};
-    setConfig({ ...DEFAULT_CONFIG, ...deptTheme, headerMode: "background" });
+    setConfig(buildHeaderConfig(department));
     setHasChanges(false);
     setSaved(false);
   }, [department?.id]);
@@ -103,7 +114,7 @@ function HeaderSettings({ onBack }) {
   };
 
   const handleSave = () => {
-    localStorage.setItem("vms_header_config", JSON.stringify(config));
+    localStorage.setItem(HEADER_CONFIG_KEY, JSON.stringify(config));
     setHasChanges(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 2000);
@@ -341,8 +352,10 @@ function HeaderSettings({ onBack }) {
     saveFestivalConfigs(finalConfigs);
 
     // Propagate to shared departments
+    const currentDeptId = department?.id ?? null;
+    const currentDeptName = department?.name ?? "";
     const shareAll = sharedWithDepts.includes("*");
-    const otherDepts = departments.filter((d) => d.id !== department.id);
+    const otherDepts = departments.filter((d) => d.id !== currentDeptId);
     const targetDepts = shareAll
       ? otherDepts
       : otherDepts.filter((d) => sharedWithDepts.includes(d.id));
@@ -359,18 +372,18 @@ function HeaderSettings({ onBack }) {
       const existingIdx = targetConfigs.findIndex(
         (f) =>
           (f.sharedFestivalId === finalId &&
-            f.sharedFromDeptId === department.id) ||
-          (f.sharedFromDeptId === department.id &&
+            f.sharedFromDeptId === currentDeptId) ||
+          (f.sharedFromDeptId === currentDeptId &&
             f.festivalName === finalFestival.festivalName),
       );
       const sharedFestival = {
-        id: `shared_${department.id}_${finalId}`,
+        id: `shared_${currentDeptId}_${finalId}`,
         festivalName: finalFestival.festivalName,
         mediaType: finalFestival.mediaType,
         isActive: false,
         readOnly: true,
-        sharedFromDeptId: department.id,
-        sharedFromDeptName: department.name,
+        sharedFromDeptId: currentDeptId,
+        sharedFromDeptName: currentDeptName,
         sharedFestivalId: finalId,
         createdAt: finalFestival.createdAt,
         updatedAt: finalFestival.updatedAt,
@@ -907,7 +920,7 @@ function HeaderSettings({ onBack }) {
                           </label>
                           {!sharedWithDepts.includes("*") &&
                             departments
-                              .filter((d) => d.id !== department.id)
+                              .filter((d) => d.id !== department?.id)
                               .map((dept) => (
                                 <label
                                   key={dept.id}

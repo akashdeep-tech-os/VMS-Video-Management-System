@@ -11,6 +11,7 @@ function MultiTimeline() {
     TOTAL_SECONDS,
     seekPlayback,
     streamUrl,
+    playbackWindow,
   } = usePlayback();
 
   const timelineRef = useRef(null);
@@ -47,6 +48,23 @@ function MultiTimeline() {
     0,
     Math.min(100, ((currentTime - adjustedStart) / visibleSeconds) * 100),
   );
+
+  // Day-second -> percent of the visible window (clamped to the track).
+  const toPercent = useCallback(
+    (sec) => Math.max(0, Math.min(100, ((sec - adjustedStart) / visibleSeconds) * 100)),
+    [adjustedStart, visibleSeconds],
+  );
+
+  // Selected window band ({start,end} seconds-of-day from the last search/seek)
+  // and the dark "played" fill inside it, up to the playhead.
+  const band = playbackWindow
+    ? { left: toPercent(playbackWindow.start), right: toPercent(playbackWindow.end) }
+    : null;
+  const playedLeft = band ? band.left : 0;
+  const playedRight = band
+    ? Math.max(toPercent(Math.min(Math.max(currentTime, playbackWindow.start), playbackWindow.end)), playedLeft)
+    : progressPercent;
+  const playedWidth = Math.max(0, playedRight - playedLeft);
 
   const handleTimelineClick = useCallback(
     (e) => {
@@ -150,10 +168,21 @@ function MultiTimeline() {
           {/* Unplayed */}
           <div className="absolute inset-0 bg-emerald-200/80 dark:bg-emerald-900/40 rounded-lg" />
 
-          {/* Played */}
+          {/* Selected window band (start -> end picked in the sidebar) */}
+          {band && (
+            <div
+              className="absolute top-0 bottom-0 bg-emerald-400/70 dark:bg-emerald-800 rounded-lg"
+              style={{
+                left: `${band.left}%`,
+                width: `${Math.max(0, band.right - band.left)}%`,
+              }}
+            />
+          )}
+
+          {/* Played: dark fill from the window start up to the playhead */}
           <div
-            className="absolute top-0 bottom-0 left-0 bg-emerald-500 dark:bg-emerald-400 rounded-l-lg"
-            style={{ width: `${progressPercent}%` }}
+            className="absolute top-0 bottom-0 bg-emerald-600 dark:bg-emerald-500 rounded-lg"
+            style={{ left: `${playedLeft}%`, width: `${playedWidth}%` }}
           />
 
           {/* Playhead Line */}

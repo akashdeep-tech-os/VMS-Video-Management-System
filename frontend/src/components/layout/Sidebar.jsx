@@ -6,6 +6,7 @@ import { motion, AnimatePresence } from "framer-motion";
 
 import MenuSection from "../common/MenuSection";
 import { sidebarConfig } from "./sidebarConfig";
+import { currentRole } from "../../api/userService";
 import logo from "../../assets/logo-new.png";
 
 const sidebarSpring = {
@@ -80,7 +81,13 @@ const Sidebar = ({ mobileOpen = false, onClose }) => {
 
   const isActive = (path) => location.pathname === path;
 
+  // Role gating: an entry with `roles: [...]` only shows for those roles
+  // (Settings is Admin-only in the two-role system).
+  const role = currentRole();
+  const hasRole = (item) => !item.roles || item.roles.includes(role);
+
   const filteredConfig = sidebarConfig
+    .filter(hasRole)
     .filter(
       (section) => !(section.type === "single" && section.name === "Dashboard"),
     )
@@ -91,8 +98,10 @@ const Sidebar = ({ mobileOpen = false, onClose }) => {
           : null;
       }
       if (!section.children) return null;
-      const filteredChildren = section.children.filter((item) =>
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()),
+      const filteredChildren = section.children.filter(
+        (item) =>
+          hasRole(item) &&
+          item.name.toLowerCase().includes(searchQuery.toLowerCase()),
       );
       if (
         filteredChildren.length > 0 ||

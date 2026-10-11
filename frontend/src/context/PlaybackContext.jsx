@@ -76,6 +76,10 @@ export function PlaybackProvider({ children }) {
   const [streamUrl, setStreamUrl] = useState(null);   // HLS url the grid plays
   const [activePath, setActivePath] = useState(null); // MediaMTX path (for seek/stop)
   const [playbackDate, setPlaybackDate] = useState(null); // "yyyy-MM-dd" being played
+  // Active playback window as seconds-of-day { start, end } (what the backend
+  // actually registered). The timeline draws the selected window band and the
+  // played progress inside it from this.
+  const [playbackWindow, setPlaybackWindow] = useState(null);
   const [playbackLoading, setPlaybackLoading] = useState(false);
   // Latest cameraId/path/date read inside effects/callbacks without re-subscribing.
   const activePathRef = useRef(null);
@@ -180,6 +184,9 @@ export function PlaybackProvider({ children }) {
 
     const ymd = toYmd(dateToUse);
     const time = to24h(searchStartTime, searchStartPeriod, "00:00:00");
+    // Playback window end: the NVR closes the stream at endTime, so an empty
+    // end input means "rest of the day".
+    const endTime = to24h(searchEndTime, searchEndPeriod, "23:59:59");
 
     setPlaybackLoading(true);
     try {
@@ -187,13 +194,17 @@ export function PlaybackProvider({ children }) {
       if (activePathRef.current) {
         await playbackService.stop(activePathRef.current);
       }
-      const resp = await playbackService.start({ cameraId, date: ymd, time });
+      const resp = await playbackService.start({ cameraId, date: ymd, time, endTime });
       const path = resp.mediaMtxPath;
       setActivePath(path);
       activePathRef.current = path;
       setStreamUrl(playbackService.webrtcUrlFromPath(path));
       setPlaybackDate(ymd);
-      playbackCtxRef.current = { cameraId, date: ymd };
+      setPlaybackWindow({
+        start: hmsToSeconds(resp.startTime || time),
+        end: hmsToSeconds(resp.endTime || endTime),
+      });
+      playbackCtxRef.current = { cameraId, date: ymd, endTime };
       setCurrentTime(hmsToSeconds(resp.startTime || time));
       setHasSearched(true);
       setGrid(1);
@@ -205,11 +216,13 @@ export function PlaybackProvider({ children }) {
       setStreamUrl(null);
       setActivePath(null);
       activePathRef.current = null;
+      setPlaybackWindow(null);
       flash(err.message || "Failed to start playback.");
     } finally {
       setPlaybackLoading(false);
     }
-  }, [selectedCameras, cameraMeta, searchDate, searchStartTime, searchStartPeriod, flash]);
+  }, [selectedCameras, cameraMeta, searchDate, searchStartTime, searchStartPeriod,
+      searchEndTime, searchEndPeriod, flash]);
 
   // Backwards-compatible alias (the sidebar button imports `searchRecordings`).
   const searchRecordings = startPlayback;
@@ -217,17 +230,27 @@ export function PlaybackProvider({ children }) {
   // Seek: re-register the SAME camera/date from a new second-of-day and re-point
   // the player. Called on timeline drag RELEASE (not during drag).
   const seekPlayback = useCallback(async (second) => {
-    const { cameraId, date } = playbackCtxRef.current;
+    const { cameraId, date, endTime } = playbackCtxRef.current;
     if (cameraId == null || !date) return;
     const time = secondsToHms(second);
     setPlaybackLoading(true);
     try {
-      const resp = await playbackService.seek({ cameraId, date, time });
+      const resp = await playbackService.seek({ cameraId, date, time, endTime });
       const path = resp.mediaMtxPath;
       setActivePath(path);
       activePathRef.current = path;
       setStreamUrl(playbackService.webrtcUrlFromPath(path));
       setCurrentTime(hmsToSeconds(resp.startTime || time));
+      // Grow-only union: scrubbing outside the searched window widens the
+      // timeline band so the playhead always sits inside it; scrubbing back
+      // inside keeps the band where the user's selection was.
+      const seekStart = hmsToSeconds(resp.startTime || time);
+      const seekEnd = hmsToSeconds(resp.endTime || endTime);
+      setPlaybackWindow((prev) =>
+        prev
+          ? { start: Math.min(prev.start, seekStart), end: Math.max(prev.end, seekEnd) }
+          : { start: seekStart, end: seekEnd },
+      );
       // A seek re-registers and re-mounts the iframe, which autoplays.
       setIsPlaying(true);
     } catch (err) {
@@ -256,6 +279,7 @@ export function PlaybackProvider({ children }) {
     setStreamUrl(null);
     setActivePath(null);
     activePathRef.current = null;
+    setPlaybackWindow(null);
   }, []);
 
   // Download the recorded window [start .. end] as MP4.
@@ -530,6 +554,7 @@ export function PlaybackProvider({ children }) {
     streamUrl,
     playbackLoading,
     activePath,
+    playbackWindow,
     startPlayback,
     seekPlayback,
     stopPlayback,
@@ -603,7 +628,7 @@ export function PlaybackProvider({ children }) {
     cameraList, cameraMeta,
     selectedCameras, searchDate, searchStartTime, searchEndTime,
     searchStartPeriod, searchEndPeriod, hasSearched, recordings,
-    streamUrl, playbackLoading, activePath,
+    streamUrl, playbackLoading, activePath, playbackWindow,
     startPlayback, seekPlayback, stopPlayback, downloadRecording,
     isPlaying, currentTime, playbackSpeed, isRewinding, rewindSpeed,
     muted, grid, zoomLevel, clipStart, clipEnd,

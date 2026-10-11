@@ -91,7 +91,7 @@ function CameraReport({ data = [], selectedDistrict, onDistrictClick }) {
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-xl sm:rounded-2xl shadow-sm hover:shadow-md transition-all duration-300 p-3 sm:p-4 h-full flex flex-col cursor-pointer hover:border-[var(--primary-color)]/40 glass-lift card-glow-hover">
       <div className="relative mb-2 shrink-0">
         <h4 className="text-[13px] sm:text-[13px] uppercase font-semibold text-[var(--text-dark)]">
-          Cameras Working Status (Police Stations)
+          Cameras Working Status
         </h4>
         {selectedDistrict && (
           <button

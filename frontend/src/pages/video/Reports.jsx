@@ -8,14 +8,21 @@ import userService from "../../api/userService";
 import dashboardService from "../../api/dashboardService";
 
 // Map a backend CameraResponse -> the row shape this report renders/exports.
-function mapCameraRow(c) {
+// Live online/offline comes from /cameras/statuses (statusById, keyed by
+// camera_id); fall back to the stream registration flag when the status call
+// is unavailable.
+function mapCameraRow(c, statusById = {}) {
+  const s = statusById[c.id];
+  const online = s
+    ? s.state === "online"
+    : c.enabled !== false && c.stream_state === "registered";
   return {
     id: c.id,
     name: c.name,
     district: c.zone || c.nvr_name || "—",
     type: c.camera_type || "—",
-    status: c.active === false ? "Offline" : c.healthy ? "Online" : "Offline",
-    ip: c.camera_ip || c.nvr_ip || "—",
+    status: online ? "Online" : "Offline",
+    ip: c.camera_ip || c.nvr_ip || c.ip_address || "—",
   };
 }
 
@@ -81,11 +88,20 @@ function Reports() {
   const alerts = [];
 
   useEffect(() => {
-    cameraService
-      .list()
-      .then((list) =>
-        setCameras(Array.isArray(list) ? list.map(mapCameraRow) : []),
-      )
+    Promise.all([
+      cameraService.list(),
+      cameraService.statuses().catch(() => null),
+    ])
+      .then(([list, statuses]) => {
+        const statusById = {};
+        if (Array.isArray(statuses))
+          statuses.forEach((s) => {
+            statusById[s.camera_id] = s;
+          });
+        setCameras(
+          Array.isArray(list) ? list.map((c) => mapCameraRow(c, statusById)) : [],
+        );
+      })
       .catch((err) => console.error("Reports: cameras failed", err));
     userService
       .getUsers()

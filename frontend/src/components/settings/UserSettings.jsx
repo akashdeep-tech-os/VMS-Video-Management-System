@@ -1,38 +1,135 @@
 import { useState, useMemo, useEffect, useRef } from "react";
-import { FaSyncAlt, FaUsers, FaArrowLeft } from "react-icons/fa";
+import { FaSyncAlt, FaUsers } from "react-icons/fa";
 import { FiTrash2, FiSearch, FiEye, FiEyeOff } from "react-icons/fi";
 import { CiEdit } from "react-icons/ci";
 import { MdDelete } from "react-icons/md";
 import { IoClose } from "react-icons/io5";
 import { motion, AnimatePresence } from "framer-motion";
 import userService from "../../api/userService";
+import cameraService from "../../api/cameraService";
+import nvrService from "../../api/nvrService";
 
-// Map the modal's role labels to the backend role enum (SUPER_ADMIN|ADMIN|USER).
+// Map the modal's role labels to the backend role enum (ADMIN | USER).
 function toBackendRole(role) {
-  const r = (role || "").toUpperCase();
-  if (r.includes("SUPER")) return "SUPER_ADMIN";
-  if (r === "ADMIN") return "ADMIN";
-  return "USER"; // User / Operator / Viewer all map to USER
+  return String(role || "").toUpperCase() === "ADMIN" ? "ADMIN" : "USER";
 }
 
 // Map a backend user into the row shape this table renders.
 function toUserRow(u) {
-  const name =
-    [u.first_name, u.last_name].filter(Boolean).join(" ") || u.username;
+  const baseRights = {};
+  (u.base_rights || []).forEach((id) => {
+    baseRights[id] = true;
+  });
   return {
     id: u.id,
-    name,
+    name: u.full_name || u.username,
     username: u.username,
-    email: "",
     status: u.active === false ? "Inactive" : "Active",
-    role:
-      u.role_name === "ADMIN"
-        ? "Admin"
-        : u.role_name === "SUPER_ADMIN"
-          ? "Super Admin"
-          : "User",
-    baseRights: {},
+    role: u.role === "ADMIN" ? "Admin" : "User",
+    baseRights,
+    channelRights: u.channel_rights || {},
   };
+}
+
+// Build the Channels panel tree from the camera registry: NVR -> its
+// channels, plus a trailing group for standalone cameras.
+function buildChannelsTree(cameras, nvrs) {
+  const nvrNames = new Map((nvrs || []).map((n) => [n.id, n.name]));
+  const groups = new Map();
+  const standalone = [];
+
+  (cameras || [])
+    .filter((cam) => cam.enabled !== false)
+    .forEach((cam) => {
+      const leaf = { id: `cam-${cam.id}`, label: cam.name, cameraId: cam.id, children: [] };
+      if (cam.nvr_id) {
+        if (!groups.has(cam.nvr_id)) {
+          groups.set(cam.nvr_id, {
+            id: `nvr-${cam.nvr_id}`,
+            label: nvrNames.get(cam.nvr_id) || `NVR ${cam.nvr_id}`,
+            children: [],
+          });
+        }
+        groups.get(cam.nvr_id).children.push(leaf);
+      } else {
+        standalone.push(leaf);
+      }
+    });
+
+  const tree = [...groups.values()];
+  if (standalone.length > 0) {
+    tree.push({ id: "standalone", label: "Standalone Cameras", children: standalone });
+  }
+  return tree;
+}
+
+// Node ids to expand by default: the top-level groups.
+function defaultExpanded(tree) {
+  const expanded = {};
+  (tree || []).forEach((node) => {
+    expanded[node.id] = true;
+  });
+  return expanded;
+}
+
+// Walk the tree and mark every node as selected.
+function selectAllNodes(selections, nodes, checked) {
+  (nodes || []).forEach((node) => {
+    selections[node.id] = checked;
+    if (node.children && node.children.length > 0) {
+      selectAllNodes(selections, node.children, checked);
+    }
+  });
+  return selections;
+}
+
+// Per-right selection maps, with every camera checked (the "give access to
+// everything" default).
+function defaultChannelSelections(tree, rightsList) {
+  const all = {};
+  rightsList.forEach((right) => {
+    all[right.id] = selectAllNodes({}, tree, true);
+  });
+  return all;
+}
+
+// Per-right selection maps reconstructed from a stored channel_rights grant:
+// a missing entry means "unrestricted" (every camera), an explicit list means
+// exactly those cameras.
+function channelSelectionsFromGrant(channelRights, tree, rightsList) {
+  const all = {};
+  rightsList.forEach((right) => {
+    const grant = channelRights ? channelRights[right.id] : undefined;
+    const unrestricted = !Array.isArray(grant);
+    const allowed = new Set(unrestricted ? [] : grant);
+    const selections = {};
+    const walk = (nodes) =>
+      (nodes || []).forEach((node) => {
+        if (node.cameraId != null) {
+          selections[node.id] = unrestricted || allowed.has(node.cameraId);
+          return;
+        }
+        walk(node.children);
+        selections[node.id] =
+          (node.children || []).length === 0 ||
+          (node.children || []).every((child) => selections[child.id]);
+      });
+    walk(tree);
+    all[right.id] = selections;
+  });
+  return all;
+}
+
+// The selected camera ids behind a per-right selection map (leaves only).
+function selectedCameraIds(selections, nodes, collected = []) {
+  (nodes || []).forEach((node) => {
+    if (node.cameraId != null) {
+      if (selections[node.id]) collected.push(node.cameraId);
+      return;
+    }
+    selectedCameraIds(selections, node.children, collected);
+  });
+  return collected;
 }
 
 // Backend rights_name (from GET /users/{id}/rights) -> this UI's right id.
@@ -73,15 +170,13 @@ const baseRightsList = [
 const inputClass =
   "w-full px-2.5 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-lg focus:border-[var(--primary-color)] outline-none transition-all text-xs text-[var(--text-dark)] placeholder-[var(--text-muted)]";
 
-function UserSettings({ onBack }) {
-  // Build channels tree from accessible cameras
-  const channelsTree = useMemo(() => {
-    return [];
-  }, []);
-
-  // Users for this department, loaded from the backend (the list endpoint has
-  // no department filter, so we fetch and scope by department_id client-side).
+function UserSettings() {
+  // Users for this department, loaded from the backend (admin-only endpoint).
   const [users, setUsers] = useState([]);
+
+  // Channels available in the Channel Rights panel: NVR -> cameras (plus a
+  // group for standalone cameras), loaded from the camera registry.
+  const [channelsTree, setChannelsTree] = useState([]);
 
   const loadUsers = async () => {
     try {
@@ -93,18 +188,9 @@ function UserSettings({ onBack }) {
     }
   };
 
-  useEffect(() => {
-    setSearch("");
-    setSelectedIds([]);
-    loadUsers();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   // Rights the LOGGED-IN user can delegate (from GET /users/{myId}/rights).
   // null = not yet loaded/unknown -> fall back to the full list.
   const [allowedRightIds, setAllowedRightIds] = useState(null);
-  // UI right id (e.g. "dashboard") -> backend numeric right id (e.g. 9).
-  const [rightIdByUiId, setRightIdByUiId] = useState({});
 
   useEffect(() => {
     let cancelled = false;
@@ -113,20 +199,13 @@ function UserSettings({ onBack }) {
         const me = await userService.getMe();
         const groups = await userService.getUserRights(me.id);
         const ids = new Set();
-        const numeric = {};
         (Array.isArray(groups) ? groups : []).forEach((grp) => {
           (grp.rights || []).forEach((r) => {
             const id = RIGHT_NAME_TO_ID[r.rights_name];
-            if (id) {
-              ids.add(id);
-              numeric[id] = r.id;
-            }
+            if (id) ids.add(id);
           });
         });
-        if (!cancelled) {
-          setAllowedRightIds(ids);
-          setRightIdByUiId(numeric);
-        }
+        if (!cancelled) setAllowedRightIds(ids);
       } catch (err) {
         console.error("Failed to load current user's rights", err);
       }
@@ -135,45 +214,6 @@ function UserSettings({ onBack }) {
       cancelled = true;
     };
   }, []);
-
-  // Build the backend site_rights payload from the modal's Base Rights +
-  // per-right Channel (site) selections: [{ site_id, right_ids: [...] }].
-  const buildSiteRights = () => {
-    const perSite = {}; // siteId -> Set(numeric right id)
-    Object.entries(rightIdByUiId).forEach(([uiId, numericRight]) => {
-      if (!baseRights[uiId]) return; // right not granted
-      const sel = channelSelections[uiId] || {};
-      Object.entries(sel).forEach(([nodeId, checked]) => {
-        if (!checked || !nodeId.startsWith("sub-")) return; // leaf sites only
-        const siteId = Number(nodeId.slice(4));
-        if (!Number.isFinite(siteId)) return;
-        (perSite[siteId] = perSite[siteId] || new Set()).add(numericRight);
-      });
-    });
-    return Object.entries(perSite).map(([siteId, rights]) => ({
-      site_id: Number(siteId),
-      right_ids: [...rights],
-    }));
-  };
-
-  // The user's home station, derived from the granted sites' parent station.
-  // A user belongs to a single station, so this is set only when unambiguous.
-  const deriveStationId = (siteRights) => {
-    const siteToStation = {};
-    channelsTree.forEach((station) => {
-      const stationId = Number(String(station.id).replace("group-", ""));
-      (station.children || []).forEach((site) => {
-        const siteId = Number(String(site.id).replace("sub-", ""));
-        siteToStation[siteId] = stationId;
-      });
-    });
-    const stationIds = new Set(
-      siteRights
-        .map((g) => siteToStation[g.site_id])
-        .filter((s) => Number.isFinite(s)),
-    );
-    return stationIds.size === 1 ? [...stationIds][0] : null;
-  };
 
   // The base rights actually shown — constrained to what the admin holds.
   const visibleRights = useMemo(
@@ -185,7 +225,8 @@ function UserSettings({ onBack }) {
   );
 
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("all");
+  // No status filter UI is exposed yet; kept so filteredUsers can use it.
+  const [statusFilter] = useState("all");
   const [roleFilter, setRoleFilter] = useState("all");
   const [selectedIds, setSelectedIds] = useState([]);
   const [showModal, setShowModal] = useState(false);
@@ -197,47 +238,25 @@ function UserSettings({ onBack }) {
     username: "",
     password: "",
     confirmPassword: "",
-    role: "Operator",
+    role: "Admin",
   });
   const [baseRights, setBaseRights] = useState({
     selectAll: true,
     ...Object.fromEntries(baseRightsList.map((r) => [r.id, true])),
   });
   const [channelRights, setChannelRights] = useState("dashboard");
-  const [expandedNodes, setExpandedNodes] = useState(() => {
-    const expanded = {};
-    channelsTree.forEach((loc) => {
-      expanded[loc.id] = true;
-      loc.children.forEach((block) => {
-        expanded[block.id] = true;
-      });
-    });
-    return expanded;
-  });
+  const [expandedNodes, setExpandedNodes] = useState({});
 
-  const buildDefaultSelections = () => {
-    const selections = {};
-    const initSelections = (nodes) => {
-      nodes.forEach((node) => {
-        if (node.children && node.children.length > 0) {
-          selections[node.id] = true;
-          initSelections(node.children);
-        } else {
-          selections[node.id] = true;
-        }
-      });
-    };
-    initSelections(channelsTree);
-    return selections;
-  };
+  // Settings is Admin-only, so it is not offered when role = User.
+  const isAdminRole = newUser.role === "Admin";
+  const selectableRights = useMemo(
+    () => visibleRights.filter((r) => r.id !== "settings" || isAdminRole),
+    [visibleRights, isAdminRole],
+  );
 
-  const [channelSelections, setChannelSelections] = useState(() => {
-    const allSelections = {};
-    baseRightsList.forEach((ct) => {
-      allSelections[ct.id] = buildDefaultSelections();
-    });
-    return allSelections;
-  });
+  const [channelSelections, setChannelSelections] = useState(() =>
+    defaultChannelSelections([], baseRightsList),
+  );
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCopyMenu, setShowCopyMenu] = useState(false);
@@ -257,11 +276,41 @@ function UserSettings({ onBack }) {
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [showCopyMenu]);
 
+  // Initial load: users for the table, plus the camera tree backing the
+  // Channels panel (both sources are best-effort).
+  useEffect(() => {
+    // Data fetch for the table: the state update happens after the request.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadUsers();
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [cameras, nvrs] = await Promise.all([
+          cameraService.list().catch(() => []),
+          nvrService.list().catch(() => []),
+        ]);
+        if (cancelled) return;
+        const tree = buildChannelsTree(cameras, nvrs);
+        setChannelsTree(tree);
+        setExpandedNodes(defaultExpanded(tree));
+        setChannelSelections(defaultChannelSelections(tree, baseRightsList));
+      } catch (err) {
+        console.error("Failed to load channels", err);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const filteredUsers = useMemo(() => {
     return users.filter((u) => {
       const matchSearch =
         u.name.toLowerCase().includes(search.toLowerCase()) ||
-        u.email.toLowerCase().includes(search.toLowerCase());
+        u.username.toLowerCase().includes(search.toLowerCase());
       const matchStatus =
         statusFilter === "all" || u.status.toLowerCase() === statusFilter;
       const matchRole =
@@ -282,9 +331,11 @@ function UserSettings({ onBack }) {
     if (!newUser.username.trim()) {
       newErrors.username = "User Name is required.";
     }
-    if (!newUser.password) {
+    // On create the password is mandatory; when editing it is an optional
+    // reset (blank = keep the current password).
+    if (!editingId && !newUser.password) {
       newErrors.password = "Password is required.";
-    } else if (newUser.password.length < 6) {
+    } else if (newUser.password && newUser.password.length < 6) {
       newErrors.password = "Password must be at least 6 characters.";
     }
     if (newUser.password !== newUser.confirmPassword) {
@@ -300,22 +351,22 @@ function UserSettings({ onBack }) {
   const handleBaseRightsChange = (id, checked) => {
     if (id === "selectAll") {
       const newRights = { selectAll: checked };
-      visibleRights.forEach((r) => {
+      selectableRights.forEach((r) => {
         newRights[r.id] = checked;
       });
       setBaseRights(newRights);
       if (!checked) {
         setChannelRights(null);
       } else if (!newRights[channelRights]) {
-        const first = visibleRights[0];
+        const first = selectableRights[0];
         if (first) setChannelRights(first.id);
       }
     } else {
       const newRights = { ...baseRights, [id]: checked };
-      newRights.selectAll = visibleRights.every((r) => newRights[r.id]);
+      newRights.selectAll = selectableRights.every((r) => newRights[r.id]);
       setBaseRights(newRights);
       if (!checked && channelRights === id) {
-        const firstChecked = visibleRights.find((r) => newRights[r.id]);
+        const firstChecked = selectableRights.find((r) => newRights[r.id]);
         setChannelRights(firstChecked ? firstChecked.id : null);
       }
     }
@@ -389,16 +440,6 @@ function UserSettings({ onBack }) {
     );
   };
 
-  const copyToAll = () => {
-    const source = channelSelections[channelRights];
-    const updated = {};
-    baseRightsList.forEach((ct) => {
-      updated[ct.id] = { ...source };
-    });
-    setChannelSelections(updated);
-    setShowCopyMenu(false);
-  };
-
   const copyToSpecific = (targetId) => {
     const source = channelSelections[channelRights];
     setChannelSelections({
@@ -409,6 +450,41 @@ function UserSettings({ onBack }) {
     setShowCopyMenu(false);
   };
 
+  // Base rights to persist: the selectable rights that are checked.
+  const buildBaseRights = () =>
+    selectableRights.filter((r) => baseRights[r.id]).map((r) => r.id);
+
+  // Per-right camera grants: { liveMonitoring: [3, 7], ... }. Every granted
+  // right is sent explicitly so "no cameras picked" is stored as [] (a right
+  // missing from the payload would mean "unrestricted" on the backend).
+  const buildChannelRights = () => {
+    const grants = {};
+    buildBaseRights().forEach((rightId) => {
+      grants[rightId] = selectedCameraIds(
+        channelSelections[rightId] || {},
+        channelsTree,
+      );
+    });
+    return grants;
+  };
+
+  // Blank the form (used by the footer "Default" button and after a save).
+  const resetForm = () => {
+    setNewUser({
+      username: "",
+      password: "",
+      confirmPassword: "",
+      role: "Admin",
+    });
+    setBaseRights({
+      selectAll: true,
+      ...Object.fromEntries(baseRightsList.map((r) => [r.id, true])),
+    });
+    setChannelRights("dashboard");
+    setChannelSelections(defaultChannelSelections(channelsTree, baseRightsList));
+    setErrors({});
+  };
+
   const handleAddUser = async () => {
     if (!validateForm()) return;
     setIsSubmitting(true);
@@ -416,41 +492,29 @@ function UserSettings({ onBack }) {
 
     try {
       const { username, password, role } = newUser;
+      const payload = {
+        role: toBackendRole(role),
+        base_rights: buildBaseRights(),
+        channel_rights: buildChannelRights(),
+        ...(password ? { password } : {}),
+      };
 
       if (editingId) {
-        // Partial update — role/active/password; username is immutable.
-        await userService.updateUser(editingId, {
-          role_name: toBackendRole(role),
-          ...(password ? { password } : {}),
-        });
+        // Partial update — role/rights/optional password; username is immutable.
+        await userService.updateUser(editingId, payload);
       } else {
-        // Backend requires department_id for ADMIN/USER — supplied from context.
-        // site_rights fans out into user_site_rights_mapping rows.
-        const siteRights = buildSiteRights();
-        const created = await userService.createUser({
+        await userService.createUser({
           username: username.trim(),
           password,
-          role_name: toBackendRole(role),
           active: true,
-          site_rights: siteRights,
+          ...payload,
         });
-        if (created?.mappings_created === 0) {
-          console.warn(
-            "User created but no site-rights mappings — check that channels (sites) are selected.",
-          );
-        }
       }
 
       await loadUsers();
       setShowModal(false);
       setEditingId(null);
-      setNewUser({
-        username: "",
-        password: "",
-        confirmPassword: "",
-        role: "Operator",
-      });
-      setErrors({});
+      resetForm();
     } catch (err) {
       setErrors({
         api: err.message || "Failed to create user. Please try again.",
@@ -472,13 +536,34 @@ function UserSettings({ onBack }) {
   };
 
   const handleEdit = (user) => {
+    const rightsList =
+      user.role === "Admin"
+        ? visibleRights
+        : visibleRights.filter((r) => r.id !== "settings");
+
+    // Rights + channel grants come straight from the loaded row, so the modal
+    // shows exactly what is stored.
+    const nextRights = { selectAll: true };
+    rightsList.forEach((r) => {
+      nextRights[r.id] = !!user.baseRights[r.id];
+    });
+    nextRights.selectAll = rightsList.every((r) => nextRights[r.id]);
+
     setEditingId(user.id);
     setNewUser({
-      username: user.name,
+      username: user.username,
       password: "",
       confirmPassword: "",
       role: user.role,
     });
+    setBaseRights(nextRights);
+    setChannelSelections(
+      channelSelectionsFromGrant(user.channelRights, channelsTree, baseRightsList),
+    );
+    const firstChecked = rightsList.find((r) => nextRights[r.id]);
+    setChannelRights(firstChecked ? firstChecked.id : null);
+    setShowPassword(false);
+    setShowConfirmPassword(false);
     setErrors({});
     setShowModal(true);
   };
@@ -511,6 +596,76 @@ function UserSettings({ onBack }) {
   };
 
   const hasSelection = selectedIds.length > 0;
+
+  // "Select All Cameras" for the currently open right: cascades through the
+  // whole tree (groups included) so the parent checkboxes stay in sync.
+  const handleSelectAllCameras = (checked) => {
+    if (!channelRights) return;
+    const currentSelections = { ...(channelSelections[channelRights] || {}) };
+    channelsTree.forEach((node) => {
+      currentSelections[node.id] = checked;
+      if (node.children && node.children.length > 0) {
+        setChildrenSelections(currentSelections, node.children, checked);
+      }
+    });
+    setChannelSelections({
+      ...channelSelections,
+      [channelRights]: currentSelections,
+    });
+  };
+
+  // Recursive renderer for the Channels panel (NVR group -> cameras).
+  const renderChannelNodes = (nodes, depth) =>
+    nodes.map((node) => {
+      const currentSelections = channelSelections[channelRights] || {};
+      const isLeaf = !node.children || node.children.length === 0;
+      const isExpanded = expandedNodes[node.id];
+      return (
+        <div key={node.id} className="mb-0.5 last:mb-0">
+          <div
+            className="flex items-center gap-1.5 py-0.5"
+            style={{ marginLeft: `${depth * 10}px` }}
+          >
+            <input
+              type="checkbox"
+              checked={!!currentSelections[node.id]}
+              onChange={(e) =>
+                handleChannelSelectionChange(node.id, e.target.checked)
+              }
+              className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
+            />
+            {isLeaf ? (
+              <span className="flex items-center gap-1 text-xs text-[var(--text-dark)]">
+                <span className="text-[var(--text-muted)] text-[10px]">🎥</span>
+                {node.label}
+              </span>
+            ) : (
+              <>
+                <span className="text-[var(--text-muted)] text-[10px]">
+                  {isExpanded ? "▼" : "▶"}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => toggleExpand(node.id)}
+                  className="flex items-center gap-1 text-xs font-semibold text-[var(--text-dark)] hover:text-[var(--primary-color)] transition"
+                >
+                  <span>📁</span>
+                  {node.label}
+                </button>
+                <span className="text-[9px] font-semibold px-1 py-0.5 rounded-full bg-[var(--primary-color)]/10 text-[var(--primary-color)]">
+                  {getSelectedLeafCount(node)}/{getLeafCount(node)}
+                </span>
+              </>
+            )}
+          </div>
+          {!isLeaf && isExpanded && (
+            <div className="ml-1.5 pl-3 border-l border-[var(--border-color)]">
+              {renderChannelNodes(node.children, depth + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
 
   return (
     <>
@@ -553,7 +708,7 @@ function UserSettings({ onBack }) {
               >
                 <option value="all">All Roles</option>
                 <option value="admin">Admin</option>
-                <option value="operator">User</option>
+                <option value="user">User</option>
               </select>
             </div>
 
@@ -561,20 +716,7 @@ function UserSettings({ onBack }) {
               <button
                 onClick={() => {
                   setEditingId(null);
-                  setNewUser({
-                    username: "",
-                    password: "",
-                    confirmPassword: "",
-                    role: "Operator",
-                  });
-                  setBaseRights({
-                    selectAll: true,
-                    ...Object.fromEntries(
-                      baseRightsList.map((r) => [r.id, true]),
-                    ),
-                  });
-                  setChannelRights("dashboard");
-                  setErrors({});
+                  resetForm();
                   setShowModal(true);
                 }}
                 className="w-full md:w-auto py-1.5 px-2.5 text-[11px] font-bold bg-[var(--primary-color)] hover:opacity-90 text-white rounded-lg transition flex items-center justify-center gap-1 shadow-sm"
@@ -801,12 +943,17 @@ function UserSettings({ onBack }) {
                   <div className="col-span-3">
                     <input
                       type="text"
-                      placeholder="Enter username"
+                      placeholder={
+                        editingId ? "Username (cannot be changed)" : "Enter username"
+                      }
                       value={newUser.username}
+                      disabled={!!editingId}
                       onChange={(e) =>
                         setNewUser({ ...newUser, username: e.target.value })
                       }
-                      className={inputClass}
+                      className={`${inputClass} ${
+                        editingId ? "opacity-60 cursor-not-allowed" : ""
+                      }`}
                     />
                     {errors.username && (
                       <p className="text-red-500 text-[10px] mt-0.5">
@@ -821,7 +968,9 @@ function UserSettings({ onBack }) {
                   <div className="col-span-3 relative">
                     <input
                       type={showPassword ? "text" : "password"}
-                      placeholder="Enter password"
+                      placeholder={
+                        editingId ? "Leave blank to keep current password" : "Enter password"
+                      }
                       value={newUser.password}
                       onChange={(e) =>
                         setNewUser({ ...newUser, password: e.target.value })
@@ -852,7 +1001,9 @@ function UserSettings({ onBack }) {
                   <div className="col-span-3 relative">
                     <input
                       type={showConfirmPassword ? "text" : "password"}
-                      placeholder="Confirm password"
+                      placeholder={
+                        editingId ? "Confirm new password" : "Confirm password"
+                      }
                       value={newUser.confirmPassword}
                       onChange={(e) =>
                         setNewUser({
@@ -903,7 +1054,7 @@ function UserSettings({ onBack }) {
                       </span>
                     </label>
                     <div className="grid grid-cols-3 gap-1.5 ml-5">
-                      {visibleRights.map((right) => (
+                      {selectableRights.map((right) => (
                         <label
                           key={right.id}
                           className="flex items-center gap-1.5 cursor-pointer"
@@ -940,7 +1091,7 @@ function UserSettings({ onBack }) {
                         </div>
                       </div>
                       <div className="border border-[var(--border-color)] rounded-lg p-2 overflow-y-auto flex-1 min-h-0 max-h-[230px]">
-                        {visibleRights
+                        {selectableRights
                           .filter((channel) => baseRights[channel.id])
                           .map((channel) => (
                             <button
@@ -955,7 +1106,7 @@ function UserSettings({ onBack }) {
                               {channel.label}
                             </button>
                           ))}
-                        {visibleRights.filter(
+                        {selectableRights.filter(
                           (channel) => baseRights[channel.id],
                         ).length === 0 && (
                           <p className="text-[11px] text-[var(--text-muted)] text-center py-4">
@@ -1013,12 +1164,12 @@ function UserSettings({ onBack }) {
                                   <input
                                     type="checkbox"
                                     checked={
-                                      visibleRights.filter(
+                                      selectableRights.filter(
                                         (ct) => ct.id !== channelRights,
                                       ).length === selectedCopyRights.length
                                     }
                                     onChange={(e) => {
-                                      const available = visibleRights
+                                      const available = selectableRights
                                         .filter((ct) => ct.id !== channelRights)
                                         .map((ct) => ct.id);
                                       setSelectedCopyRights(
@@ -1061,7 +1212,7 @@ function UserSettings({ onBack }) {
                                   Specific Rights
                                 </p>
                                 <div className="space-y-0 max-h-[120px] overflow-y-auto">
-                                  {visibleRights
+                                  {selectableRights
                                     .filter((ct) => ct.id !== channelRights)
                                     .map((ct) => (
                                       <label
@@ -1145,173 +1296,34 @@ function UserSettings({ onBack }) {
                         ) : (
                           <>
                             {/* Select All Cameras */}
-                            {(() => {
-                              const currentSelections =
-                                channelSelections[channelRights] || {};
-                              const allChecked = channelsTree.every(
-                                (loc) => currentSelections[loc.id],
-                              );
-                              return (
-                                <div className="flex items-center gap-1.5 py-1.5 px-1 mb-1.5 border-b border-[var(--border-color)]">
-                                  <input
-                                    type="checkbox"
-                                    checked={allChecked}
-                                    onChange={(e) => {
-                                      const checked = e.target.checked;
-                                      const newSelections = {
-                                        ...currentSelections,
-                                      };
-                                      channelsTree.forEach((loc) => {
-                                        newSelections[loc.id] = checked;
-                                        if (loc.children) {
-                                          loc.children.forEach((block) => {
-                                            newSelections[block.id] = checked;
-                                            if (block.children) {
-                                              block.children.forEach((cam) => {
-                                                newSelections[cam.id] = checked;
-                                              });
-                                            }
-                                          });
-                                        }
-                                      });
-                                      setChannelSelections({
-                                        ...channelSelections,
-                                        [channelRights]: newSelections,
-                                      });
-                                    }}
-                                    className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
-                                  />
-                                  <span className="text-[10px] font-semibold text-[var(--text-dark)]">
-                                    Select All Cameras
-                                  </span>
-                                </div>
-                              );
-                            })()}
-                            {channelsTree.map((location) => {
-                              const total = getLeafCount(location);
-                              const selected = getSelectedLeafCount(location);
-                              const isExpanded = expandedNodes[location.id];
-                              const currentSelections =
-                                channelSelections[channelRights];
-                              return (
-                                <div
-                                  key={location.id}
-                                  className="mb-1 last:mb-0"
-                                >
-                                  <div className="flex items-center gap-1.5 py-0.5">
-                                    <input
-                                      type="checkbox"
-                                      checked={currentSelections[location.id]}
-                                      onChange={(e) =>
-                                        handleChannelSelectionChange(
-                                          location.id,
-                                          e.target.checked,
-                                        )
-                                      }
-                                      className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
-                                    />
-                                    <span className="text-[var(--text-muted)] text-[10px]">
-                                      {isExpanded ? "▼" : "▶"}
-                                    </span>
-                                    <button
-                                      type="button"
-                                      onClick={() => toggleExpand(location.id)}
-                                      className="flex items-center gap-1 text-xs font-semibold text-[var(--text-dark)] hover:text-[var(--primary-color)] transition"
-                                    >
-                                      <span>📁</span>
-                                      {location.label}
-                                    </button>
-                                    <span className="text-[9px] font-semibold px-1 py-0.5 rounded-full bg-[var(--primary-color)]/10 text-[var(--primary-color)]">
-                                      {selected}/{total}
-                                    </span>
-                                  </div>
-                                  {isExpanded &&
-                                    location.children.length > 0 && (
-                                      <div className="ml-4 pl-2 border-l border-[var(--border-color)]">
-                                        {location.children.map((block) => {
-                                          const blockTotal =
-                                            getLeafCount(block);
-                                          const blockSelected =
-                                            getSelectedLeafCount(block);
-                                          const blockExpanded =
-                                            expandedNodes[block.id];
-                                          return (
-                                            <div
-                                              key={block.id}
-                                              className="mb-0.5 last:mb-0"
-                                            >
-                                              <div className="flex items-center gap-1.5 py-0.5">
-                                                <input
-                                                  type="checkbox"
-                                                  checked={
-                                                    currentSelections[block.id]
-                                                  }
-                                                  onChange={(e) =>
-                                                    handleChannelSelectionChange(
-                                                      block.id,
-                                                      e.target.checked,
-                                                    )
-                                                  }
-                                                  className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
-                                                />
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    toggleExpand(block.id)
-                                                  }
-                                                  className="flex items-center gap-1 text-xs text-[var(--text-dark)] hover:text-[var(--primary-color)] transition"
-                                                >
-                                                  <span>📁</span>
-                                                  {block.label}
-                                                </button>
-                                                <span className="text-[9px] font-semibold px-1 py-0.5 rounded-full bg-[var(--primary-color)]/10 text-[var(--primary-color)]">
-                                                  {blockSelected}/{blockTotal}
-                                                </span>
-                                              </div>
-                                              {blockExpanded &&
-                                                block.children.length > 0 && (
-                                                  <div className="ml-4 pl-2 border-l border-[var(--border-color)]">
-                                                    {block.children.map(
-                                                      (camera) => (
-                                                        <label
-                                                          key={camera.id}
-                                                          className="flex items-center gap-1.5 py-0.5 cursor-pointer hover:bg-[var(--hover-bg)] rounded px-1 transition"
-                                                        >
-                                                          <input
-                                                            type="checkbox"
-                                                            checked={
-                                                              currentSelections[
-                                                                camera.id
-                                                              ]
-                                                            }
-                                                            onChange={(e) =>
-                                                              handleChannelSelectionChange(
-                                                                camera.id,
-                                                                e.target
-                                                                  .checked,
-                                                              )
-                                                            }
-                                                            className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
-                                                          />
-                                                          <span className="text-[var(--text-muted)] text-[10px]">
-                                                            🎥
-                                                          </span>
-                                                          <span className="text-xs text-[var(--text-dark)]">
-                                                            {camera.label}
-                                                          </span>
-                                                        </label>
-                                                      ),
-                                                    )}
-                                                  </div>
-                                                )}
-                                            </div>
-                                          );
-                                        })}
-                                      </div>
-                                    )}
-                                </div>
-                              );
-                            })}
+                            <div className="flex items-center gap-1.5 py-1.5 px-1 mb-1.5 border-b border-[var(--border-color)]">
+                              <input
+                                type="checkbox"
+                                checked={
+                                  channelsTree.length > 0 &&
+                                  channelsTree.every(
+                                    (node) =>
+                                      (channelSelections[channelRights] || {})[
+                                        node.id
+                                      ],
+                                  )
+                                }
+                                onChange={(e) =>
+                                  handleSelectAllCameras(e.target.checked)
+                                }
+                                className="w-3.5 h-3.5 accent-[var(--primary-color)] cursor-pointer"
+                              />
+                              <span className="text-[10px] font-semibold text-[var(--text-dark)]">
+                                Select All Cameras
+                              </span>
+                            </div>
+                            {channelsTree.length === 0 ? (
+                              <p className="text-[11px] text-[var(--text-muted)] text-center py-4">
+                                No cameras available - add cameras first
+                              </p>
+                            ) : (
+                              renderChannelNodes(channelsTree, 0)
+                            )}
                           </>
                         )}
                       </div>
@@ -1329,31 +1341,7 @@ function UserSettings({ onBack }) {
               {/* Footer */}
               <div className="flex justify-end gap-2 px-5 py-3 border-t border-[var(--border-color)]">
                 <button
-                  onClick={() => {
-                    setShowModal(false);
-                    setEditingId(null);
-                    setNewUser({
-                      username: "",
-                      password: "",
-                      confirmPassword: "",
-                      role: "Operator",
-                    });
-                    setBaseRights({
-                      selectAll: true,
-                      ...Object.fromEntries(
-                        baseRightsList.map((r) => [r.id, true]),
-                      ),
-                    });
-                    setChannelRights("dashboard");
-                    setChannelSelections(() => {
-                      const allSelections = {};
-                      baseRightsList.forEach((ct) => {
-                        allSelections[ct.id] = buildDefaultSelections();
-                      });
-                      return allSelections;
-                    });
-                    setErrors({});
-                  }}
+                  onClick={resetForm}
                   className="px-5 py-2 border border-[var(--border-color)] rounded-lg text-[var(--text-muted)] hover:bg-[var(--hover-bg)] transition text-sm font-semibold"
                 >
                   Default

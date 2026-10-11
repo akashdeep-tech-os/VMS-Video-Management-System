@@ -1,13 +1,12 @@
-// Client for the SURAKSHIT PLAYBACK service (separate Spring Boot app on :8081).
+// Client for the playback endpoints of the FastAPI backend (/api/v1/playback).
 //
-// Unlike the edge/stream service, this service returns RAW JSON (no {data}
-// envelope) and does NOT use the /api/v1 prefix - so it does NOT go through
-// apiClient.js. It shares the same JWT though (same signing secret + users
-// table), so we reuse the token stored by apiClient.
+// The backend returns RAW JSON (no {data} envelope), so this module fetches
+// directly instead of going through apiClient.js - it still reuses the JWT
+// that apiClient stores.
 import { getToken } from "./apiClient";
 
 const PLAYBACK_BASE =
-  import.meta.env.VITE_PLAYBACK_API_BASE_URL || "http://localhost:8081";
+  import.meta.env.VITE_PLAYBACK_API_BASE_URL || "http://localhost:8000/api/v1";
 
 const HLS_BASE =
   import.meta.env.VITE_MEDIAMTX_HLS_BASE_URL || "http://localhost:8888";
@@ -42,7 +41,10 @@ async function post(path, body) {
 async function extractError(res) {
   try {
     const data = await res.json();
-    return data?.message || data?.error?.message || `Request failed (${res.status})`;
+    return (
+      data?.message || data?.detail || data?.error?.message ||
+      `Request failed (${res.status})`
+    );
   } catch {
     return `Request failed (${res.status})`;
   }
@@ -50,16 +52,17 @@ async function extractError(res) {
 
 const playbackService = {
   /**
-   * Start recorded playback. Returns the PlaybackResponse
-   * { cameraId, date, startTime, mediaMtxPath, webrtcUrl, status, ... }.
+   * Start recorded playback. Registers the NVR's RTSP playback window
+   * (starttime/endtime) as a MediaMTX path and returns
+   * { cameraId, date, startTime, endTime, mediaMtxPath, webrtcUrl, status }.
    */
-  start({ cameraId, date, time }) {
-    return post("/api/playback/start", { cameraId, date, time });
+  start({ cameraId, date, time, endTime }) {
+    return post("/playback/start", { cameraId, date, time, endTime });
   },
 
   /** Seek: re-register the same camera/date from a new time. Same response shape. */
-  seek({ cameraId, date, time }) {
-    return post("/api/playback/seek", { cameraId, date, time });
+  seek({ cameraId, date, time, endTime }) {
+    return post("/playback/seek", { cameraId, date, time, endTime });
   },
 
   /** Stop/de-register a MediaMTX playback path (frees the NVR session). */
@@ -67,7 +70,7 @@ const playbackService = {
     if (!mediaMtxPath) return;
     try {
       await fetch(
-        `${PLAYBACK_BASE}/api/playback/stop?mediaMtxPath=${encodeURIComponent(mediaMtxPath)}`,
+        `${PLAYBACK_BASE}/playback/stop?mediaMtxPath=${encodeURIComponent(mediaMtxPath)}`,
         { method: "DELETE", headers: authHeaders(false) }
       );
     } catch (err) {
@@ -83,7 +86,7 @@ const playbackService = {
   async download(cameraId, { date, startTime, endTime }) {
     const qs = new URLSearchParams({ date, startTime, endTime }).toString();
     const res = await fetch(
-      `${PLAYBACK_BASE}/api/playback/download/${cameraId}?${qs}`,
+      `${PLAYBACK_BASE}/playback/download/${cameraId}?${qs}`,
       { headers: authHeaders(false) }
     );
     if (!res.ok) {

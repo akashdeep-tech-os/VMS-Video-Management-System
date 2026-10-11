@@ -10,6 +10,11 @@ const cameraService = {
     return apiClient.get("/cameras/tree");
   },
 
+  // Live online/offline probe for every camera (ONVIF reachability + stream).
+  statuses() {
+    return apiClient.get("/cameras/statuses");
+  },
+
   get(id) {
     return apiClient.get(`/cameras/${id}`);
   },

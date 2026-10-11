@@ -5,7 +5,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import select
 
-from app.api.routes import cameras, dashboard, health, nvr, system
+from app.api.routes import auth, cameras, dashboard, health, nvr, playback, system, users
+from app.core.bootstrap import ensure_bootstrap_admin
 from app.core.config import settings
 from app.core.database import SessionLocal
 from app.core.logging import setup_logging
@@ -67,6 +68,7 @@ async def _reregister_all_cameras() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting %s v%s (%s)", settings.app_name, settings.app_version, settings.app_env)
+    ensure_bootstrap_admin()
     await _reregister_all_cameras()
     yield
     await mediamtx.mediamtx.close()
@@ -93,6 +95,10 @@ app.include_router(cameras.router, prefix="/api/v1")
 app.include_router(nvr.router, prefix="/api/v1")
 app.include_router(dashboard.router, prefix="/api/v1")
 app.include_router(system.router, prefix="/api/v1")
+app.include_router(auth.router, prefix="/api/v1")
+app.include_router(users.router, prefix="/api/v1")
+app.include_router(users.rights_router, prefix="/api/v1")
+app.include_router(playback.router, prefix="/api/v1")
 
 
 @app.get("/")
