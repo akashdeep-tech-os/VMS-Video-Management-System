@@ -19,6 +19,8 @@ srtAddress: :8890
 
 webrtc: true
 webrtcAddress: :8889
+# Explicit UDP port for WebRTC media (published in docker-compose.yml)
+webrtcLocalUDPAddress: :8189
 
 # Avoid port conflict with FastAPI backend (port 8000).
 rtpAddress: :8002

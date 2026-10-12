@@ -1,0 +1,79 @@
+# Surakshit VMS — full stack (frontend + backend + MediaMTX)
+# Usage:
+#   docker compose up -d --build
+#   Open http://<linux-host-ip>  (login: admin / admin123 — change it!)
+name: surakshit-vms
+
+services:
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        # Same-origin API path: browser -> nginx /api -> edge-server:8080
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api/v1}
+    container_name: surakshit-vms-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    depends_on:
+      - backend
+    networks:
+      - vms
+
+  backend:
+    build: ./backend
+    # Name MUST stay "edge-server": frontend/nginx.conf proxies to edge-server:8080
+    container_name: edge-server
+    restart: unless-stopped
+    environment:
+      APP_ENV: ${APP_ENV:-production}
+      DATABASE_URL: sqlite:////data/streaming.db
+      LOG_DIR: /data/logs
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost,http://127.0.0.1}
+      AUTH_SECRET_KEY: ${AUTH_SECRET_KEY:-change-this-secret-in-production}
+      BOOTSTRAP_ADMIN_USERNAME: ${BOOTSTRAP_ADMIN_USERNAME:-admin}
+      BOOTSTRAP_ADMIN_PASSWORD: ${BOOTSTRAP_ADMIN_PASSWORD:-admin123}
+      # Backend -> MediaMTX (inside Docker network)
+      MEDIAMTX_API_URL: http://mediamtx:9997
+      MEDIAMTX_RTSP_URL: rtsp://mediamtx:8554
+      MEDIAMTX_RTMP_URL: rtmp://mediamtx:1935
+      # Browser-facing URLs returned to the client (must be reachable from the
+      # browser machine — use http://<linux-host-ip>:8889 for remote access)
+      MEDIAMTX_HLS_URL: ${MEDIAMTX_HLS_URL:-http://localhost:8888}
+      MEDIAMTX_WEBRTC_URL: ${MEDIAMTX_WEBRTC_URL:-http://localhost:8889}
+    volumes:
+      - backend-data:/data
+    ports:
+      # Exposed for direct Swagger docs / debugging (UI normally uses nginx /api)
+      - "${BACKEND_PORT:-8080}:8080"
+    depends_on:
+      - mediamtx
+    networks:
+      - vms
+
+  mediamtx:
+    # Official Linux image — replaces mediamtx_v1.19.3_windows_amd64/mediamtx.exe
+    image: bluenviron/mediamtx:1.19.3
+    container_name: surakshit-vms-mediamtx
+    restart: unless-stopped
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+    ports:
+      - "8554:8554"       # RTSP
+      - "1935:1935"       # RTMP
+      - "8889:8889"       # WebRTC / WHEP (HTTP signaling)
+      - "8889:8889/udp"   # WebRTC media (UDP)
+      - "8189:8189/udp"   # WebRTC local UDP (webrtcLocalUDPAddress)
+      - "9997:9997"       # Control API (backend uses this internally)
+      - "9998:9998"       # Metrics
+      - "8002:8002/udp"   # RTP
+      - "8003:8003/udp"   # RTCP
+    networks:
+      - vms
+
+networks:
+  vms:
+    driver: bridge
+
+volumes:
+  backend-data:
