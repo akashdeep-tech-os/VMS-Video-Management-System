@@ -143,7 +143,7 @@ function PlaybackToolbar() {
             <ToolBtn
               onClick={() => (isPlaying ? pause() : play())}
               title={isPlaying ? "Pause" : "Play"}
-              active
+              active={isPlaying}
             >
               {isPlaying ? <FaPause size={14} /> : <FaPlay size={14} />}
             </ToolBtn>
@@ -177,6 +177,12 @@ function PlaybackToolbar() {
               ) : (
                 <FaExpand size={12} />
               )}
+            </ToolBtn>
+            <ToolBtn
+              onClick={() => setShowDownloadModal(true)}
+              title="Download Recording"
+            >
+              <FaDownload size={12} />
             </ToolBtn>
           </div>
         </div>
@@ -217,7 +223,7 @@ function PlaybackToolbar() {
         <ToolBtn
           onClick={() => (isPlaying ? pause() : play())}
           title={isPlaying ? "Pause" : "Play"}
-          active
+          active={isPlaying}
         >
           {isPlaying ? <FaPause size={16} /> : <FaPlay size={16} />}
         </ToolBtn>
