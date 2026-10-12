@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect, useCallback } from "react";
-import HeaderActions from "../header/HeaderActions";
-import HeaderText from "../header/HeaderText";
+import HeaderActions from "../Header/HeaderActions";
+import HeaderText from "../Header/HeaderText";
 import { FiMenu, FiMoreVertical } from "react-icons/fi";
 import { motion, AnimatePresence } from "framer-motion";
 
