@@ -3,7 +3,7 @@ import NotificationButton from "./NotificationButton";
 import FullscreenButton from "./FullscreenButton";
 import ThemeToggle from "../../theme/components/ThemeToggle";
 import UserProfile from "./UserProfile";
-import HeaderTime from "./headerTime";
+import HeaderTime from "./HeaderTime";
 
 function HeaderActions({
   isMobileMode = false,
