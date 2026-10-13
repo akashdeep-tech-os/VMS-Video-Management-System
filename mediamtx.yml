@@ -26,6 +26,24 @@ webrtcLocalUDPAddress: :8189
 rtpAddress: :8002
 rtcpAddress: :8003
 
+# MediaMTX 1.19 default auth only allows the API/metrics/pprof from
+# 127.0.0.1/::1 INSIDE the container. Both the backend container
+# (http://mediamtx:9997) and host curl (via port mapping) come from other IPs,
+# so without this block every API call fails with "authentication error" and
+# camera paths are never registered ("stream not found" in the UI).
+# Lab setup: allow anonymous access from any IP. Restrict for production.
+authInternalUsers:
+  - user: any
+    pass:
+    ips: []
+    permissions:
+      - action: publish
+      - action: read
+      - action: playback
+      - action: api
+      - action: metrics
+      - action: pprof
+
 pathDefaults:
   record: false
   recordPath: ./recordings/%path/%Y-%m-%d_%H-%M-%S-%f
