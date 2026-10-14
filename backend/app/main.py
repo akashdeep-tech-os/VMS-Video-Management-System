@@ -12,7 +12,7 @@ from app.core.database import SessionLocal
 from app.core.logging import setup_logging
 from app.models.camera import Camera
 from app.services import mediamtx
-from app.services.onvif import build_rtsp_url, derive_sub_path
+from app.services.onvif import build_rtsp_url, derive_mobile_path, derive_sub_path
 
 setup_logging()
 
@@ -56,6 +56,18 @@ async def _reregister_all_cameras() -> None:
         else:
             sub_source = source
         await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(cam.id), sub_source)
+
+        # Register mobile stream path (e-Vision subtype=2); brands without a
+        # mobile tier reuse the sub source so the MOBILE toggle never dead-ends.
+        mobile_path = cam.rtsp_mobile_path or derive_mobile_path(cam.rtsp_path or sub_path)
+        if mobile_path:
+            mobile_source = build_rtsp_url(
+                cam.ip_address, cam.rtsp_port, mobile_path,
+                cam.username, cam.password,
+            )
+        else:
+            mobile_source = sub_source
+        await mediamtx.mediamtx.add_path(mediamtx.mobile_path_name(cam.id), mobile_source)
 
         with SessionLocal() as db:
             db_cam = db.get(Camera, cam.id)

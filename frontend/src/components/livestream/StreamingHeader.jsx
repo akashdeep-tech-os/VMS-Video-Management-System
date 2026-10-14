@@ -222,7 +222,7 @@ function StreamingHeader({
           </button>
           {showStreamTypeDropdown && (
             <div className="vms-dropdown absolute right-0 top-full mt-1 w-full z-50">
-              {["sub", "main"].map((type) => (
+              {["sub", "main", "mobile"].map((type) => (
                 <button
                   key={type}
                   onClick={() => {

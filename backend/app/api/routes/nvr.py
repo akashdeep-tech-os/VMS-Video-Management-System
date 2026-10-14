@@ -49,6 +49,20 @@ BRAND_RTSP_SUB_PATHS = {
     "evision": "/rtsp/streaming?channel={ch}&subtype=1",
 }
 
+# Mobile-stream RTSP paths (lowest bandwidth, for phone/remote viewing).
+# Only e-Vision documents a third tier (subtype=2); other brands reuse the
+# sub stream as the mobile source at registration time.
+BRAND_RTSP_MOBILE_PATHS = {
+    "evision": "/rtsp/streaming?channel={ch}&subtype=2",
+}
+
+# Brands whose NVRs serve RTSP on the HTTP port (80) rather than the
+# conventional 554. e-Vision NVRs share one port for web + RTSP, so an
+# operator who leaves the RTSP port blank must not get a 554 default.
+BRAND_DEFAULT_RTSP_PORT = {
+    "evision": 80,
+}
+
 # Max length of Camera.name / NVR.name in the schema.
 NAME_MAX = 120
 
@@ -68,6 +82,19 @@ def _get_rtsp_sub_path(brand: str | None, channel: int) -> str | None:
     """
     brand_key = normalize_brand(brand)
     path_template = BRAND_RTSP_SUB_PATHS.get(brand_key)
+    if path_template:
+        return path_template.format(ch=channel)
+    return None
+
+
+def _get_rtsp_mobile_path(brand: str | None, channel: int) -> str | None:
+    """Get the mobile-stream RTSP path for a given brand and channel number.
+
+    Returns None for brands without a mobile-stream convention; the caller
+    falls back to the sub stream as the mobile source.
+    """
+    brand_key = normalize_brand(brand)
+    path_template = BRAND_RTSP_MOBILE_PATHS.get(brand_key)
     if path_template:
         return path_template.format(ch=channel)
     return None
@@ -162,6 +189,7 @@ async def _sync_channels(
     for ch in range(start_channel, start_channel + num_channels):
         rtsp_path = _get_rtsp_path(brand_hint, ch)
         rtsp_sub_path = _get_rtsp_sub_path(brand_hint, ch)
+        rtsp_mobile_path = _get_rtsp_mobile_path(brand_hint, ch)
         rtsp_url = build_rtsp_url(
             nvr.ip_address, nvr.rtsp_port, rtsp_path, nvr.username, nvr.password
         )
@@ -183,16 +211,27 @@ async def _sync_channels(
         cam.password = nvr.password
         cam.rtsp_path = rtsp_path
         cam.rtsp_sub_path = rtsp_sub_path
+        cam.rtsp_mobile_path = rtsp_mobile_path
         cam.rtsp_source = "brand_convention"
         db.flush()
 
         ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(cam.id), rtsp_url)
         # Register sub stream path with MediaMTX
+        sub_url = None
         if rtsp_sub_path:
             sub_url = build_rtsp_url(
                 nvr.ip_address, nvr.rtsp_port, rtsp_sub_path, nvr.username, nvr.password
             )
             await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(cam.id), sub_url)
+        # Register mobile stream path (e-Vision subtype=2). Brands without a
+        # mobile convention reuse the sub source so the MOBILE toggle works.
+        if rtsp_mobile_path:
+            mobile_url = build_rtsp_url(
+                nvr.ip_address, nvr.rtsp_port, rtsp_mobile_path, nvr.username, nvr.password
+            )
+        else:
+            mobile_url = sub_url or rtsp_url
+        await mediamtx.mediamtx.add_path(mediamtx.mobile_path_name(cam.id), mobile_url)
         cam.stream_state = "registered" if ok else "error"
         db.flush()
 
@@ -280,7 +319,11 @@ async def discover_cameras_id_less(
     """
     ip = nvr_body.ip_address
     onvif_port = nvr_body.onvif_port or 80
-    rtsp_port = nvr_body.rtsp_port or 554
+    # e-Vision NVRs serve RTSP on the web port (80), not 554; honour the
+    # brand's conventional port when the operator leaves the field blank.
+    brand_hint = brand or nvr_body.brand_name
+    default_rtsp_port = BRAND_DEFAULT_RTSP_PORT.get(normalize_brand(brand_hint), 554)
+    rtsp_port = nvr_body.rtsp_port or default_rtsp_port
     username = nvr_body.username or ""
     password = nvr_body.plain_password or ""
 
@@ -416,6 +459,8 @@ async def delete_nvr(nvr_id: int, db: Session = Depends(get_db)) -> None:
     # Also delete the cameras registered under this NVR.
     for cam in db.scalars(_owned_cameras_stmt(nvr)).all():
         await mediamtx.mediamtx.remove_path(mediamtx.path_name(cam.id))
+        await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(cam.id))
+        await mediamtx.mediamtx.remove_path(mediamtx.mobile_path_name(cam.id))
         db.delete(cam)
     db.delete(nvr)
     db.commit()

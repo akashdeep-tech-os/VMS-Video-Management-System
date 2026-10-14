@@ -29,12 +29,20 @@ def sub_path_name(camera_id: int) -> str:
     return f"{PATH_PREFIX}_{camera_id}_sub"
 
 
+def mobile_path_name(camera_id: int) -> str:
+    return f"{PATH_PREFIX}_{camera_id}_mob"
+
+
 def webrtc_url(camera_id: int) -> str:
     return f"{settings.mediamtx_webrtc_url.rstrip('/')}/{path_name(camera_id)}/whep"
 
 
 def sub_webrtc_url(camera_id: int) -> str:
     return f"{settings.mediamtx_webrtc_url.rstrip('/')}/{sub_path_name(camera_id)}/whep"
+
+
+def mobile_webrtc_url(camera_id: int) -> str:
+    return f"{settings.mediamtx_webrtc_url.rstrip('/')}/{mobile_path_name(camera_id)}/whep"
 
 
 class MediaMTXClient:

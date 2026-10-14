@@ -8,7 +8,7 @@ from app.core.database import get_db
 from app.models.camera import Camera
 from app.schemas.camera import CameraCreate, CameraCreateRtsp, CameraRead, CameraStatus, CameraUpdate
 from app.services import mediamtx
-from app.services.onvif import build_rtsp_url, derive_sub_path
+from app.services.onvif import build_rtsp_url, derive_mobile_path, derive_sub_path
 from app.services.status import status_service
 
 logger = logging.getLogger(__name__)
@@ -26,9 +26,11 @@ CAMERA_ORDER = (Camera.nvr_id, Camera.channel, Camera.name)
 async def _register_path(camera: Camera) -> None:
     """Register the camera's RTSP source with MediaMTX (best effort).
 
-    Registers both main and sub stream paths. If no sub path is configured,
+    Registers main, sub and mobile stream paths. If no sub path is configured,
     the main stream source is used for the sub path as well, so the SUB/MAIN
-    toggle always works.
+    toggle always works. The mobile path (e-Vision subtype=2) is registered
+    only when configured or derivable; other brands fall back to the sub
+    source so the MOBILE option never shows a dead tile.
     """
     source = build_rtsp_url(camera.ip_address, camera.rtsp_port, camera.rtsp_path, camera.username, camera.password)
     ok = await mediamtx.mediamtx.add_path(mediamtx.path_name(camera.id), source)
@@ -42,6 +44,17 @@ async def _register_path(camera: Camera) -> None:
     else:
         sub_source = source
     await mediamtx.mediamtx.add_path(mediamtx.sub_path_name(camera.id), sub_source)
+
+    # Mobile stream path — e-Vision exposes subtype=2 as a third, lowest
+    # bandwidth tier. Derive it from the main/sub path when not stored.
+    mobile_path = camera.rtsp_mobile_path or derive_mobile_path(camera.rtsp_path or sub_path)
+    if mobile_path:
+        mobile_source = build_rtsp_url(
+            camera.ip_address, camera.rtsp_port, mobile_path, camera.username, camera.password
+        )
+    else:
+        mobile_source = sub_source
+    await mediamtx.mediamtx.add_path(mediamtx.mobile_path_name(camera.id), mobile_source)
 
     camera.stream_state = "registered" if ok else "error"
 
@@ -145,6 +158,12 @@ async def create_camera_rtsp(payload: CameraCreateRtsp, db: Session = Depends(ge
         sub_parsed = urlparse(payload.rtsp_sub_url)
         sub_path = sub_parsed.path + (f"?{sub_parsed.query}" if sub_parsed.query else "")
 
+    # Parse mobile URL if provided (e-Vision subtype=2)
+    mobile_path = None
+    if payload.rtsp_mobile_url:
+        mob_parsed = urlparse(payload.rtsp_mobile_url)
+        mobile_path = mob_parsed.path + (f"?{mob_parsed.query}" if mob_parsed.query else "")
+
     camera = Camera(
         name=payload.name,
         ip_address=host,
@@ -156,6 +175,7 @@ async def create_camera_rtsp(payload: CameraCreateRtsp, db: Session = Depends(ge
         longitude=payload.longitude,
         rtsp_path=path,
         rtsp_sub_path=sub_path,
+        rtsp_mobile_path=mobile_path,
         rtsp_source="rtsp_url",
     )
     db.add(camera)
@@ -204,8 +224,8 @@ async def update_camera(camera_id: int, payload: CameraUpdate, db: Session = Dep
 
     if was_enabled and not camera.enabled:
         await mediamtx.mediamtx.remove_path(mediamtx.path_name(camera.id))
-        if camera.rtsp_sub_path:
-            await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
+        await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
+        await mediamtx.mediamtx.remove_path(mediamtx.mobile_path_name(camera.id))
         camera.stream_state = "idle"
     elif camera.enabled and (not was_enabled or connection_changed):
         await _register_path(camera)
@@ -221,8 +241,8 @@ async def delete_camera(camera_id: int, db: Session = Depends(get_db)) -> None:
     if camera is None:
         raise HTTPException(status_code=404, detail="Camera not found")
     await mediamtx.mediamtx.remove_path(mediamtx.path_name(camera.id))
-    if camera.rtsp_sub_path:
-        await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
+    await mediamtx.mediamtx.remove_path(mediamtx.sub_path_name(camera.id))
+    await mediamtx.mediamtx.remove_path(mediamtx.mobile_path_name(camera.id))
     status_service._cache.pop(camera.id, None)
     db.delete(camera)
     db.commit()

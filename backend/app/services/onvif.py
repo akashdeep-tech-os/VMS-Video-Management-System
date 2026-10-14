@@ -26,6 +26,8 @@ FALLBACK_RTSP_PATHS = [
     "/Streaming/Channels/101",
     "/cam/realmonitor?channel=1&subtype=1",
     "/cam/realmonitor?channel=1&subtype=0",
+    "/rtsp/streaming?channel=1&subtype=1",
+    "/rtsp/streaming?channel=1&subtype=0",
     "/h264Preview_01_sub",
     "/h264Preview_01_main",
     "/stream2",
@@ -67,12 +69,13 @@ def derive_sub_path(main_path: str | None) -> str | None:
     Known patterns:
       Dahua / CP Plus: /cam/realmonitor?channel=N&subtype=0  ->  subtype=1
       Hikvision:       /Streaming/Channels/N01               ->  N02
+      e-Vision:        /rtsp/streaming?channel=N&subtype=0   ->  subtype=1
     Returns None for unrecognized paths (caller should fall back to main).
     """
     if not main_path:
         return None
 
-    # Dahua / CP Plus: subtype=0 -> subtype=1
+    # Dahua / CP Plus / e-Vision: subtype=0 -> subtype=1
     if "subtype=0" in main_path:
         return main_path.replace("subtype=0", "subtype=1")
 
@@ -81,6 +84,22 @@ def derive_sub_path(main_path: str | None) -> str | None:
     if m:
         return m.group(1) + "02"
 
+    return None
+
+
+def derive_mobile_path(main_path: str | None) -> str | None:
+    """Derive the mobile-stream RTSP path (e-Vision subtype=2) from a main path.
+
+    e-Vision NVRs expose three tiers: subtype=0 (main), subtype=1 (sub) and
+    subtype=2 (mobile/low-bandwidth). Returns None for paths without a
+    subtype= query (no mobile tier to derive).
+    """
+    if not main_path or "subtype=" not in main_path:
+        return None
+    if "subtype=0" in main_path:
+        return main_path.replace("subtype=0", "subtype=2")
+    if "subtype=1" in main_path:
+        return main_path.replace("subtype=1", "subtype=2")
     return None
 
 

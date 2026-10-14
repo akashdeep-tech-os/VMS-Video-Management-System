@@ -173,8 +173,15 @@ export function LiveStreamingProvider({ children }) {
       cameraService
         .get(meta.id)
         .then((cam) => {
-          // Use sub_webrtc_url for sub stream, webrtc_url for main stream
-          const rawUrl = streamType === "sub" ? cam?.sub_webrtc_url : cam?.webrtc_url;
+          // sub -> sub_webrtc_url, main -> webrtc_url,
+          // mobile -> mobile_webrtc_url (e-Vision subtype=2; other brands
+          // fall back server-side to the sub source).
+          const rawUrl =
+            streamType === "sub"
+              ? cam?.sub_webrtc_url
+              : streamType === "mobile"
+                ? cam?.mobile_webrtc_url || cam?.sub_webrtc_url
+                : cam?.webrtc_url;
           const playerUrl = webrtcPlayerUrl(rawUrl);
           setStreamInfo((prev) => ({
             ...prev,

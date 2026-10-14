@@ -50,6 +50,9 @@ class Camera(Base):
     # the fly because credentials can change.
     rtsp_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rtsp_sub_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Mobile-stream path (e-Vision subtype=2). NULL for brands without a
+    # documented mobile convention; no MediaMTX path is registered then.
+    rtsp_mobile_path: Mapped[str | None] = mapped_column(String(255), nullable=True)
     rtsp_source: Mapped[str] = mapped_column(String(16), nullable=False, default="none", server_default="none")  # onvif | fallback | none
 
     # Stream registration state with MediaMTX: idle | registered | error.
